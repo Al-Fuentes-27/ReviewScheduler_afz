@@ -1,9 +1,11 @@
 # Ignore everything inside these folders...
 data/*
 tests/*
+outputs/*
 # ...but make an exception for the .gitkeep file
 !data/.gitkeep
 !tests/.gitkeep
+!outputs/.gitkeep
 
 
 # Visual Studio Code
