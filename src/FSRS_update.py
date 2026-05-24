@@ -2,38 +2,29 @@
 import os
 import re
 import yaml
+import csv
 import math
 import json
+import re
 from datetime import date, timedelta
 from pathlib import Path
-
-
-
-# ===== CONFIGURATION =====
-def load_config(CONFIG_FILE):
-    """Load configuration from config.json. Exit if not found."""
-    if not CONFIG_FILE.exists():
-        raise FileNotFoundError(
-            f"Configuration file not found!\n"
-            f"Expected location: {CONFIG_FILE}\n"
-            f"Please copy 'config.example.json' to 'config.json' and edit it with your local paths."
-        )
-    
-    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 
 
 # ===== FSRS-INSPIRED PARAMETERS =====
 """ DESIRED_RETENTION :
-This is the single most impactful parameter because it scales all intervals directly. 
+This is the single most impactful parameter because it scales all intervals 
+directly. 
 
 With DESIRED_RETENTION = 0.90, interval equals S exactly. With 0.95, 
 intervals shrink to 49% of S — nearly double the review 
 frequency. With 0.85, intervals grow to 151% of S.
 
-For Concept Notes and Debug Notes from technical books, 0.90 is the right starting point. Push to 0.85 only if your review load is unsustainable. The cost of dropping below 0.85 is that you are forgetting one in six notes at every review — which undermines the system's purpose.
+For Concept Notes and Debug Notes from technical books, 0.90 is the right 
+starting point. Push to 0.85 only if your review load is unsustainable. The 
+cost of dropping below 0.85 is that you are forgetting one in six notes at 
+every review — which undermines the system's purpose.
 """
 DESIRED_RETENTION = 0.90   # target 90% recall at review time
 
@@ -72,12 +63,21 @@ INITIAL_DIFFICULTY = {
 
 
 # How much difficulty shifts per grade
-"""This controls how fast the system updates its assessment of a note's inherent difficulty."""
+"""This controls how fast the system updates its assessment of a note's 
+inherent difficulty."""
 """
-The asymmetry is intentional — forgetting (again) penalizes harder than success rewards. This matches how memory actually works: one failure is stronger evidence of a genuine difficulty than one success is evidence of genuine ease.
-The easy delta of -0.3 is deliberately smaller than the again delta of +0.8. If you make it symmetric, the system over-responds to streaks of easy reviews and starts scheduling mature notes at intervals that are too long, which produces surprise failures.
+The asymmetry is intentional — forgetting (again) penalizes harder than 
+success rewards. This matches how memory actually works: one failure is 
+stronger evidence of a genuine difficulty than one success is evidence 
+of genuine ease.
+The easy delta of -0.3 is deliberately smaller than the again delta of +0.8. 
+If you make it symmetric, the system over-responds to streaks of easy 
+reviews and starts scheduling mature notes at intervals that are too 
+long, which produces surprise failures.
 
-If you find difficulty converging too slowly — notes staying at initial values for many reviews — increase the deltas proportionally. If difficulty is oscillating (a note keeps swinging between hard and easy), reduce them.
+If you find difficulty converging too slowly — notes staying at initial 
+values for many reviews — increase the deltas proportionally. If difficulty 
+is oscillating (a note keeps swinging between hard and easy), reduce them.
 """
 DIFFICULTY_DELTA = {
     'again': +0.8,
@@ -90,14 +90,19 @@ DIFFICULTY_DELTA = {
 # Stability growth weights
 """
 1. BASE_GROWTH:
-Increase it toward 3.5 if your notes are consolidating too slowly (mature notes keep coming back too soon).
-Decrease toward 2.0 if intervals are growing so fast that you regularly fail mature notes.
-W_RECALL_TIMING:
+- Increase it toward 3.5 if your notes are consolidating too 
+slowly (mature notes keep coming back too soon).
+- Decrease toward 2.0 if intervals are growing so fast that you regularly 
+fail mature notes.
+
 2. W_RECALL_TIMING:
 Controls how much you are rewarded for recalling something you nearly forgot. 
-At 0.5, a note recalled at R=0.3 (very overdue) gets 73% more stability growth than one reviewed at R=0.9. 
-- Increase toward 0.8 if you want to strongly incentivize spacing reviews out to the edge. 
-- Decrease toward 0.2 if you find overdue notes producing unrealistically long next intervals.
+At 0.5, a note recalled at R=0.3 (very overdue) gets 73% more stability growth
+ than one reviewed at R=0.9. 
+- Increase toward 0.8 if you want to strongly incentivize spacing reviews out
+ to the edge.
+- Decrease toward 0.2 if you find overdue notes producing unrealistically 
+long next intervals.
 """
 BASE_GROWTH       = 2.9    # S roughly triples per review at ideal timing/difficulty
 W_RECALL_TIMING   = 0.5    # Reward exponent for recalling near forgetting threshold
@@ -109,7 +114,8 @@ W_DECAY           = 0.1    # Maturity dampening exponent
 """
 W_FORGET_S :
 - Increase toward 0.7 to give more recovery credit for prior learning. 
-- Decrease toward 0.3 if you want forgetting to be more punishing — closer to a full reset.
+- Decrease toward 0.3 if you want forgetting to be more punishing — closer 
+to a full reset.
 """
 W_FORGET_BASE = 0.5
 W_FORGET_S    = 0.5    # Prior stability recovery bonus
@@ -122,9 +128,11 @@ W_FORGET_R    = 1.0    # Low retrievability at failure → less recovery
 # Grade multipliers applied on top of recall stability formula
 """
 These apply after the main growth calculation. 
-hard at 0.75 means you still gain stability — you did recall the note — but 25% less than a clean recall. 
+hard at 0.75 means you still gain stability — you did recall the 
+note — but 25% less than a clean recall.
 
-Do not set hard below 0.6 or you will find yourself stuck with notes that oscillate between hard and again without ever maturing.
+Do not set hard below 0.6 or you will find yourself stuck with notes that 
+oscillate between hard and again without ever maturing.
 """
 GRADE_STABILITY_MULTIPLIER = {
     'hard': 0.75,
@@ -141,11 +149,30 @@ MIN_STABILITY = 0.1
 MAX_STABILITY = 365.0
 MIN_DIFFICULTY = 1.0
 MAX_DIFFICULTY = 10.0
+
+
+
+
+
+
+
+
+
+# ===== CONFIGURATION =====
+def load_config(CONFIG_FILE):
+    """Load configuration from config.json. Exit if not found."""
+    if not CONFIG_FILE.exists():
+        raise FileNotFoundError(
+            f"Configuration file not found!\n"
+            f"Expected location: {CONFIG_FILE}\n"
+            f"Please copy 'config.example.json' to 'config.json' and edit it with your local paths."
+        )
+    
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 # =====================================
-
-
-
-
 def retrievability(elapsed_days: float, stability: float) -> float:
     """Probability of recall given elapsed time and current stability."""
     """R = 0.9 when elapsed == S. Intuitive: S is the interval."""
@@ -216,7 +243,7 @@ def compute_new_schedule(front: dict, grade: str, elapsed_days: float) -> dict:
     Core scheduling function. Returns updated scheduling fields.
     Handles both new notes (no stability yet) and reviewed notes.
     """
-    is_new = 'stability' not in front
+    is_new = 'stability' not in front or float(front.get('stability', 0)) == 0
 
     if is_new:
         S = INITIAL_STABILITY[grade]
@@ -309,7 +336,7 @@ def parse_frontmatter(content):
 
 
 
-def update_note(filepath, grade, configuration):
+def update_note(filepath, grade, configuration, review_time_min):
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -342,25 +369,52 @@ def update_note(filepath, grade, configuration):
     front.update(updates)
     front['last_reviewed'] = today.isoformat()
     front['next_review']   = (today + timedelta(days=updates['interval'])).isoformat()
+    front['review_time_min']  = review_time_min   # minutes spent in this review session
 
     new_content = f"---\n{yaml.dump(front, allow_unicode=True, sort_keys=False)}---\n{body}"
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(new_content)
 
+    print(f"\n{'=' * 50}")
     print(f"Updated {filepath.name}")
     print(f"Stability: {updates['stability']:.1f}d  | "
           f"Difficulty: {updates['difficulty']:.1f} | "
           f"Next review: {front['next_review']}     |")
 
-    # Append to review log
+    # Append to review log — csv.writer quotes any field containing commas
     log_path = Path(configuration["log_path"])
+    
+    # Create the log file if not exists
     if not log_path.exists():
-        log_path.write_text("date,note,grade,elapsed,R_at_review,new_stability,new_difficulty\n")
+        with open(log_path, "w", newline="", encoding="utf-8") as log:
+            csv.writer(log).writerow([
+                "date", "note", "grade", "elapsed",
+                "R_at_review", "new_stability", "new_difficulty",
+                "review_time_min",
+            ])
 
-    with open(log_path, "a") as log:
-        log.write(f"{today},{filepath.name},{grade},"
-                  f"{elapsed},{r_label},"
-                  f"{updates['stability']},{updates['difficulty']}\n")
+    # Update the already existing log file
+    with open(log_path, "a", newline="", encoding="utf-8") as log:
+        csv.writer(log).writerow([
+            today,
+            filepath.name,
+            grade,
+            elapsed,
+            r_label,
+            updates["stability"],
+            updates["difficulty"],
+            review_time_min if review_time_min is not None else "",
+            ])
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -374,11 +428,11 @@ def main():
     
     # Get the specific file path (ensuring it's a Path object for easy manipulation)
     VAULT_PATH = Path(config["obsidian_vault_path"])
-    print(f"Successfully loaded the obsidian vault path: {VAULT_PATH}")
+    print(f"Successfully loaded the obsidian vault path: {VAULT_PATH}\n")
 
     # Get the specific notes file extension
     NOTES_EXT = config["notes_extension"]
-    print(f"Searching files with '{NOTES_EXT}' extension")
+    print(f"Searching files with '{NOTES_EXT}' extension\n")
 
     
     due_files = {}
@@ -402,32 +456,37 @@ def main():
                 """Convert a string or date object to a date."""
                 next_date, topic = to_date(front['next_review']), front['topic']
 
-                if next_date == date.today():  # <=
-                    #due_files.append(md_file)
+                #if next_date <= date.today():  # <=
+                if (next_date <= date.today()) and (next_date >= (date.today() - timedelta(days=5))):
                     due_files.setdefault(md_file, topic)
                     
             except Exception as e:
-                print(f"Warning: Could not parse date in {md_file}: {e}")
+                print(f"\n>>> Warning: Could not parse date in {md_file}:\n{e} <<<")
 
     if not due_files:
         print("No notes due today. You can still review any note.")
         # Optionally allow manual entry as before
         return
 
-    print(f"Found {len(due_files)} notes due today:\n")    
+    print(f"\n\nFound {len(due_files)} notes due today:")    
     for i, f in enumerate(due_files.keys()):
         rel = f.relative_to(VAULT_PATH)
         print(f"{i+1}. {rel}")
 
     for filepath, topic in due_files.items():
-        print(f"\n--- {filepath.relative_to(VAULT_PATH)} ---")
-        print(f"<__> Topic of the note: {topic}")
-        print("""\na: for again / white (failed)
-              h: for hard / red
-              g: for good / yellow
-              e: for easy / green
-              """)
+        output_message = f"""\n
+--- {filepath.relative_to(VAULT_PATH)} ---
 
+<__> Topic of the note:
+{topic}
+
+a: for again / white (failed)
+h: for hard / red
+g: for good / yellow
+e: for easy / green
+"""
+        print(output_message)
+        
         grade = input("Grade? (a/h/g/e or skip with Enter): ").strip().lower()
 
         if not grade:
@@ -439,8 +498,46 @@ def main():
         if grade not in grade_map:
             print("Invalid grade, skipping.")
             continue
+        
+        
+        """Record the time spent on the review session."""
+        print("Review time?")
+        print("hours:minutes:seconds --> h:m:s")
+        
+        while True:
 
-        update_note(filepath, grade_map[grade], config)
+            time_input = input("h:m:s, or Enter to skip: ").strip()
+
+            if not time_input:
+                review_time_min = None
+                break  # Skip recording
+
+            # Regex to match h:m:s, allowing integer or float values for each component
+            pattern = r'^(\d+)([^\d])(\d+)\2(\d+(?:\.\d+)?)$'
+            match = re.match(pattern, time_input)
+            
+            if not match:
+                print("Invalid format. Use numbers separated by the same non‑digit character (e.g., 1:30:45, 2-15-30.5, 0/5/0.75).")
+                continue  # Ask again
+
+            try:    
+                # Extract groups
+                h = int(match.group(1))    # hours (integer)
+                m = int(match.group(3))    # minutes (integer)
+                s = float(match.group(4))  # seconds (can be decimal)
+    
+                total_minutes = h * 60 + m + s / 60
+                review_time_min = round(total_minutes, 2)
+                
+                break  # Success, exit loop
+    
+            except ValueError:
+                print("Invalid numeric values. Please enter valid numbers.")
+                continue  # Ask again
+
+
+        """Update all the files regarding to the review."""
+        update_note(filepath, grade_map[grade], config, review_time_min)
 
 
 
