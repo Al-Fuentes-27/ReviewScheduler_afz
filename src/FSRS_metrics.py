@@ -22,6 +22,31 @@ def load_config(CONFIG_FILE):
 
 
 
+# ===== DATE PARSING =====
+
+def parse_date(date_str: str):
+    """
+    Parse a date string that may be in one of two formats:
+      YYYY-MM-DD  (ISO format — written by current script versions)
+      DD/MM/YYYY  (written by older script versions)
+    Raises ValueError with a clear message if neither format matches.
+    """
+    from datetime import date
+    date_str = date_str.strip()
+    if '-' in date_str:
+        # YYYY-MM-DD
+        return date.fromisoformat(date_str)
+    elif '/' in date_str:
+        # DD/MM/YYYY
+        day, month, year = date_str.split('/')
+        return date(int(year), int(month), int(day))
+    else:
+        raise ValueError(
+            f"Unrecognised date format: '{date_str}'. "
+            f"Expected YYYY-MM-DD or DD/MM/YYYY."
+        )
+
+
 # ===== DATA LOADING =====
 
 def load_log(LOG_PATH):
@@ -52,7 +77,7 @@ def compute_retention_over_time(rows):
     for r in rows:
         if r['R_at_review'] == 'new':
             continue
-        d = date.fromisoformat(r['date'])
+        d = parse_date(r['date'])
         week_label = f"{d.isocalendar().year}-W{d.isocalendar().week:02d}"
         weekly[week_label]['total'] += 1
         if r['grade'] != 'again':

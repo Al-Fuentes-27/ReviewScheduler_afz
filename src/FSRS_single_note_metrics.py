@@ -5,6 +5,7 @@ import json
 import webbrowser
 from pathlib import Path
 from collections import defaultdict
+from datetime import datetime
 
 
 
@@ -18,7 +19,6 @@ def load_config(config_file: Path) -> dict:
             f"Expected location: {config_file}\n"
             f"Please copy 'config.example.json' to 'config.json' and edit it."
         )
-
     with open(config_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -34,13 +34,12 @@ def resolve_paths(config: dict) -> dict:
                 "mode is 'test' but 'testing_FSRS_metrics' block is missing from config.json"
             )
         resolved["log_path"]     = test["log_path"]
+        resolved["edits_path"]   = test["edits_path"]
         resolved["metrics_path"] = test["metrics_path"]
         print("Running in TEST mode — using test log and metrics paths.")
     else:
         print("Running in PRODUCTION mode.")
-
     return resolved
-
 
 
 # ===== DATA LOADING =====
@@ -48,16 +47,20 @@ def resolve_paths(config: dict) -> dict:
 def load_log(log_path: Path) -> list:
     if not log_path.exists():
         print("No review log found yet. Run the main review script first.")
-
         return []
-
     with open(log_path, newline='', encoding='utf-8') as f:
         rows = list(csv.DictReader(f))
-
     if not rows:
         print("Log file is empty.")
-
     return rows
+
+
+def load_edits(edits_path: Path) -> list:
+    """Load note edit events from note_edits.csv. Returns [] if file missing."""
+    if not edits_path.exists():
+        return []
+    with open(edits_path, newline='', encoding='utf-8') as f:
+        return list(csv.DictReader(f))
 
 
 def group_rows_by_note(rows: list) -> dict:
@@ -65,7 +68,14 @@ def group_rows_by_note(rows: list) -> dict:
     groups = defaultdict(list)
     for r in rows:
         groups[r['note']].append(r)
+    return dict(groups)
 
+
+def group_edits_by_note(edit_rows: list) -> dict:
+    """Return {note_name: [edit_rows...]} preserving chronological order."""
+    groups = defaultdict(list)
+    for e in edit_rows:
+        groups[e['note']].append(e)
     return dict(groups)
 
 
@@ -74,8 +84,23 @@ def sanitize_filename(note_name: str) -> str:
     name = note_name.replace('.md', '')
     safe = re.sub(r'[<>:"/\\|?*\u2014\u2013]', '_', name)
     safe = re.sub(r'[\s_]+', '_', safe).strip('_')
-
     return safe[:80]
+
+
+# ===== DATE HELPERS =====
+
+def parse_date_flexible(date_str: str):
+    """
+    Parse dates in either YYYY-MM-DD or DD/MM/YYYY format.
+    The review_log.csv contains both formats across its history.
+    Returns a date object, or None if unparseable.
+    """
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+        try:
+            return datetime.strptime(date_str.strip(), fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 # ===== PER-NOTE METRIC COMPUTATIONS =====
@@ -94,9 +119,9 @@ def compute_note_summary(rows: list) -> dict:
     total_lapses = sum(1 for r in rows if r['grade'] == 'again')
 
     times = [
-        float(r['review_time_min'])
+        float(r['review_time'])
         for r in rows
-        if r.get('review_time_min', '') not in ('', None)
+        if r.get('review_time', '') not in ('', None)
     ]
     avg_time   = round(sum(times) / len(times), 1) if times else None
     total_time = round(sum(times), 1)              if times else None
@@ -117,7 +142,7 @@ def compute_note_stability_trajectory(rows: list) -> list:
     """
     Actual stability value at each review — not an average.
     Each point carries its grade so the chart can color it accordingly:
-      again → red   hard → amber   good → green   easy → blue
+    again → red   hard → amber   good → green   easy → blue
     """
     return [
         {
@@ -191,7 +216,7 @@ def compute_note_review_timeline(rows: list) -> list:
     """
     result = []
     for i, r in enumerate(rows):
-        t = r.get('review_time_min', '')
+        t = r.get('review_time', '')
         result.append({
             'review_n':      i + 1,
             'date':          r['date'],
@@ -200,7 +225,7 @@ def compute_note_review_timeline(rows: list) -> list:
             'R_at_review':   r['R_at_review'],
             'stability':     round(float(r['new_stability']), 1),
             'difficulty':    round(float(r['new_difficulty']), 2),
-            'review_time_min': round(float(t), 1) if t and t != '' else None,
+            'review_time': round(float(t), 1) if t and t != '' else None,
         })
     return result
 
@@ -212,7 +237,7 @@ def compute_note_time_trajectory(rows: list) -> list:
     """
     result = []
     for i, r in enumerate(rows):
-        t = r.get('review_time_min', '')
+        t = r.get('review_time', '')
         result.append({
             'review_n': i + 1,
             'time_min': round(float(t), 1) if t and t != '' else None,
@@ -220,6 +245,65 @@ def compute_note_time_trajectory(rows: list) -> list:
             'date':     r['date'],
         })
     return result
+
+
+def compute_edit_events(note_rows: list, edit_rows: list) -> list:
+    """
+    For each edit event belonging to this note, determine its position
+    in the review timeline so the dashboard can:
+      - draw a vertical annotation line on the charts (x_position)
+      - inject an epoch-divider row in the timeline table (before_review_n)
+
+    x_position is a fractional 0-indexed value for Chart.js category scale:
+      between R4 (index 3) and R5 (index 4) → x_position = 3.5
+
+    before_review_n is the 1-indexed review number whose table row
+    should be preceded by the edit divider.
+    """
+    if not edit_rows:
+        return []
+
+    # Build (parsed_date, 0-based_index, 1-based_review_n) for each review
+    review_dates = []
+    for i, r in enumerate(note_rows):
+        parsed = parse_date_flexible(r['date'])
+        review_dates.append((parsed, i, i + 1))
+
+    events = []
+    for edit in edit_rows:
+        edit_date = parse_date_flexible(edit['date'])
+        if edit_date is None:
+            continue
+
+        x_position = None
+        before_review_n = None
+
+        for parsed, idx, rn in review_dates:
+            if parsed is None:
+                continue
+            if edit_date < parsed:
+                # Edit falls before this review
+                if idx == 0:
+                    x_position = -0.5   # before the very first review
+                else:
+                    x_position = (idx - 1) + 0.5  # between previous and this
+                before_review_n = rn
+                break
+
+        if x_position is None:
+            # Edit is after all reviews
+            x_position = len(review_dates) - 0.5
+            before_review_n = len(review_dates) + 1
+
+        events.append({
+            'date':            edit['date'],
+            'edit_type':       edit['edit_type'],
+            'description':     edit.get('description', ''),
+            'x_position':      x_position,
+            'before_review_n': before_review_n,
+        })
+
+    return events
 
 
 # ===== HTML GENERATION =====
@@ -231,7 +315,8 @@ def build_note_html(note_name: str,
                     time_traj: list,
                     grade_dist: list,
                     r_dist: list,
-                    timeline: list) -> str:
+                    timeline: list,
+                    edit_events: list) -> str:
 
     display_name = note_name.replace('.md', '')
     retention_display = (
@@ -239,6 +324,8 @@ def build_note_html(note_name: str,
         if summary['retention_rate'] is not None
         else "n/a — only 1 review"
     )
+
+    total_edits = len(edit_events)
 
     data_js = f"""
     const noteName        = {json.dumps(display_name)};
@@ -249,6 +336,8 @@ def build_note_html(note_name: str,
     const gradeData       = {json.dumps(grade_dist)};
     const rDistData       = {json.dumps(r_dist)};
     const timelineData    = {json.dumps(timeline)};
+    const editEvents      = {json.dumps(edit_events)};
+    const totalEdits      = {json.dumps(total_edits)};
     const retentionDisplay = {json.dumps(retention_display)};
     """
 
@@ -259,6 +348,8 @@ def build_note_html(note_name: str,
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Note metrics — {display_name}</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<!-- Chart.js Annotation Plugin for Vertical Lines -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
 <style>
   :root {{
     --bg:       #f8f8f6;
@@ -272,6 +363,7 @@ def build_note_html(note_name: str,
     --amber:    #EF9F27;
     --red:      #E24B4A;
     --purple:   #7F77DD;
+    --magenta:  #D946EF;
     --radius:   10px;
   }}
   @media (prefers-color-scheme: dark) {{
@@ -282,6 +374,7 @@ def build_note_html(note_name: str,
       --text:    #f0efe8;
       --muted:   #9a9a94;
       --border:  rgba(255,255,255,0.1);
+      --magenta: #E879F9;
     }}
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -296,7 +389,7 @@ def build_note_html(note_name: str,
   .subtitle {{ font-size: 12px; color: var(--muted); margin-bottom: 2rem; }}
   .stat-grid {{
     display: grid;
-    grid-template-columns: repeat(6, minmax(0,1fr));
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 12px;
     margin-bottom: 1.5rem;
   }}
@@ -373,6 +466,41 @@ def build_note_html(note_name: str,
   .badge-good   {{ background: #1D9E75; }}
   .badge-easy   {{ background: #378ADD; }}
   .lapse-flag   {{ font-size: 11px; color: var(--red); margin-left: 4px; }}
+  /* ── Edit Divider Row Styles (Magenta/Fuchsia Theme) ── */
+  .edit-divider-row td {{
+    background: rgba(217, 70, 239, 0.08);
+    color: #C026D3;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 12px 14px;
+    border-bottom: 1px dashed var(--magenta);
+    letter-spacing: 0.5px;
+  }}
+  .edit-divider-row:hover td {{ background: rgba(217, 70, 239, 0.15); }}
+  .edit-badge {{
+    display: inline-block;
+    background: var(--magenta);
+    color: #1a1a18;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-right: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    .edit-divider-row td {{
+      background: rgba(232, 121, 249, 0.1);
+      color: #E879F9;
+    }}
+    .edit-divider-row:hover td {{ background: rgba(232, 121, 249, 0.15); }}
+    .edit-badge {{
+      background: #C026D3;
+      color: #ffffff;
+    }}
+  }}
 </style>
 </head>
 <body>
@@ -401,6 +529,10 @@ def build_note_html(note_name: str,
   <div class="stat-card">
     <div class="stat-label">Total lapses</div>
     <div class="stat-value" id="s-lapses">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Edits</div>
+    <div class="stat-value" id="s-edits" style="color: var(--magenta);">—</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Avg review time</div>
@@ -433,7 +565,7 @@ def build_note_html(note_name: str,
       </canvas>
     </div>
     <div class="target-note">
-      Points colored by grade. A drop = lapse recovery. Steady rise = healthy consolidation.
+      Points colored by grade. Dashed magenta line = note rewrite. A drop after the line = expected reset.
     </div>
   </div>
   <div class="chart-card">
@@ -518,6 +650,7 @@ def build_note_html(note_name: str,
 {data_js}
 
 const isDark  = matchMedia('(prefers-color-scheme: dark)').matches;
+const MAGENTA = isDark ? '#E879F9' : '#D946EF';
 const textClr = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
 const gridClr = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
 
@@ -539,6 +672,32 @@ const baseOpts = {{
   scales: baseScale
 }};
 
+// ── Build annotation objects dynamically from edit events ────────────────────
+const editAnnotations = {{}};
+editEvents.forEach((ev, i) => {{
+  editAnnotations['editLine' + i] = {{
+    type: 'line',
+    xMin: ev.x_position, xMax: ev.x_position,
+    borderColor: MAGENTA,
+    borderWidth: 2,
+    borderDash: [6, 4],
+    label: {{
+      display: true,
+      content: '✏️ ' + ev.edit_type.replace(/_/g, ' '),
+      position: 'start',
+      backgroundColor: MAGENTA,
+      color: isDark ? '#ffffff' : '#1a1a18',
+      font: {{ size: 10, weight: 'bold' }},
+      padding: 4,
+      borderRadius: 4
+    }}
+  }};
+}});
+const hasEdits = editEvents.length > 0;
+const annotationPlugin = hasEdits
+  ? {{ annotation: {{ annotations: editAnnotations }} }}
+  : {{}};
+
 
 // ── Header ───────────────────────────────────────────────────────────────────
 document.getElementById('note-title').textContent = noteName;
@@ -552,6 +711,7 @@ document.getElementById('s-total').textContent     = summaryData.total_reviews;
 document.getElementById('s-stability').textContent = summaryData.current_stability + 'd';
 document.getElementById('s-difficulty').textContent = summaryData.current_difficulty;
 document.getElementById('s-lapses').textContent    = summaryData.total_lapses;
+document.getElementById('s-edits').textContent     = totalEdits;
 
 const timeEl = document.getElementById('s-time');
 if (summaryData.avg_review_time !== null && summaryData.avg_review_time !== undefined) {{
@@ -595,6 +755,7 @@ new Chart(document.getElementById('c-stability'), {{
     }},
     plugins: {{
       legend: {{ display: false }},
+      ...annotationPlugin,
       tooltip: {{
         callbacks: {{
           label: ctx => {{
@@ -678,6 +839,10 @@ new Chart(document.getElementById('c-difficulty'), {{
         ticks: {{ color: textClr, font: {{ size: 11 }} }},
         grid: {{ color: gridClr }}
       }}
+    }},
+    plugins: {{
+      ...baseOpts.plugins,
+      ...annotationPlugin
     }}
   }}
 }});
@@ -735,6 +900,7 @@ if (hasTimeData) {{
       }},
       plugins: {{
         legend: {{ display: false }},
+        ...annotationPlugin,
         tooltip: {{
           callbacks: {{
             label: ctx => {{
@@ -758,14 +924,28 @@ if (hasTimeData) {{
 const tbody = document.getElementById('timeline-body');
 
 timelineData.forEach(r => {{
+
+  // Inject edit epoch-dividers before the appropriate review row
+  editEvents.forEach(ev => {{
+    if (ev.before_review_n === r.review_n) {{
+      const typeLabel = ev.edit_type.replace(/_/g, ' ').toUpperCase();
+      tbody.innerHTML +=
+        '<tr class="edit-divider-row">' +
+        '<td colspan="8">' +
+        '<span class="edit-badge">✏️ ' + typeLabel + '</span>' +
+        (ev.description ? ev.description + ' — ' : '') + ev.date +
+        '</td></tr>';
+    }}
+  }});
+
   const isFirst = r.R_at_review === 'new';
   const isLapse = r.grade === 'again' && !isFirst;
   const rDisplay = isFirst ? '— first review' : r.R_at_review;
   const elapsedDisplay = r.review_n === 1 ? '—' : r.elapsed + 'd';
   const lapseFlag = isLapse ? '<span class="lapse-flag">⚠ lapse</span>' : '';
 
-  const timeDisplay = (r.review_time_min !== null && r.review_time_min !== undefined)
-    ? r.review_time_min + ' min'
+  const timeDisplay = (r.review_time !== null && r.review_time !== undefined)
+    ? r.review_time + ' min'
     : '—';
 
   tbody.innerHTML +=
@@ -787,7 +967,6 @@ timelineData.forEach(r => {{
 </script>
 </body>
 </html>"""
-
     return html
 
 
@@ -799,7 +978,8 @@ def print_section(title: str):
     print(f"{'=' * 50}")
 
 
-def print_note_summary(note_name: str, summary: dict, out_path: Path):
+def print_note_summary(note_name: str, summary: dict, out_path: Path,
+                       edit_count: int):
     retention = (
         f"{summary['retention_rate']}%"
         if summary['retention_rate'] is not None
@@ -809,17 +989,25 @@ def print_note_summary(note_name: str, summary: dict, out_path: Path):
     if summary['retention_rate'] is not None and summary['retention_rate'] < 88:
         retention_flag = "  ✗"
     lapse_flag = "  ⚠  rewrite this note" if summary['total_lapses'] >= 3 else ""
+    edit_flag  = f"  ✏️ {edit_count} edit(s)" if edit_count > 0 else ""
 
-    print(f"\n  {note_name.replace('.md','')}")
+    print(f"\n{note_name.replace('.md','')}")
     print(f"    Reviews    : {summary['total_reviews']}")
     print(f"    Retention  : {retention}{retention_flag}")
     print(f"    Stability  : {summary['current_stability']}d")
     print(f"    Difficulty : {summary['current_difficulty']}")
     print(f"    Lapses     : {summary['total_lapses']}{lapse_flag}")
+    print(f"    Edits      : {edit_count}{edit_flag}")
     if summary['avg_review_time'] is not None:
         print(f"    Avg time   : {summary['avg_review_time']} min  "
               f"(total: {summary['total_review_time']} min)")
     print(f"    Saved to   : {out_path.name}")
+
+
+
+
+
+
 
 
 # ===== MAIN =====
@@ -832,8 +1020,11 @@ def main():
     rows = load_log(Path(config["log_path"]))
     if not rows:
         return
-
     print(f"Loaded {len(rows)} review events.")
+
+    # Load note edit events (separate CSV, may not exist yet)
+    edit_rows = load_edits(Path(config["edits_path"]))
+    print(f"Loaded {len(edit_rows)} edit events.")
 
     # Output directory: sibling folder next to the main metrics HTML
     metrics_dir = Path(config["metrics_path"]).parent / "note_reports"
@@ -841,30 +1032,36 @@ def main():
     print(f"Note reports directory: {metrics_dir.resolve()}")
 
     note_groups = group_rows_by_note(rows)
+    edit_groups = group_edits_by_note(edit_rows)
     print(f"Found {len(note_groups)} unique notes in log.")
 
     print_section(f"Generating {len(note_groups)} note reports")
 
     generated = []
-
     for note_name, note_rows in sorted(note_groups.items()):
-        summary        = compute_note_summary(note_rows)
-        stability_traj = compute_note_stability_trajectory(note_rows)
-        difficulty_traj= compute_note_difficulty_trajectory(note_rows)
-        time_traj      = compute_note_time_trajectory(note_rows)
-        grade_dist     = compute_note_grade_distribution(note_rows)
-        r_dist         = compute_note_r_distribution(note_rows)
-        timeline       = compute_note_review_timeline(note_rows)
+        summary         = compute_note_summary(note_rows)
+        stability_traj  = compute_note_stability_trajectory(note_rows)
+        difficulty_traj = compute_note_difficulty_trajectory(note_rows)
+        time_traj       = compute_note_time_trajectory(note_rows)
+        grade_dist      = compute_note_grade_distribution(note_rows)
+        r_dist          = compute_note_r_distribution(note_rows)
+        timeline        = compute_note_review_timeline(note_rows)
+
+        # Compute edit positions for this specific note
+        note_edits  = edit_groups.get(note_name, [])
+        edit_events = compute_edit_events(note_rows, note_edits)
 
         html      = build_note_html(
             note_name, summary, stability_traj,
-            difficulty_traj, time_traj, grade_dist, r_dist, timeline
+            difficulty_traj, time_traj, grade_dist, r_dist, timeline,
+            edit_events
         )
+
         safe_name = sanitize_filename(note_name)
         out_path  = metrics_dir / f"{safe_name}.html"
         out_path.write_text(html, encoding='utf-8')
 
-        print_note_summary(note_name, summary, out_path)
+        print_note_summary(note_name, summary, out_path, len(edit_events))
         generated.append(out_path)
 
     print_section("Done")
@@ -878,13 +1075,12 @@ def main():
     )
     safe      = sanitize_filename(most_lapsed[0])
     highlight = metrics_dir / f"{safe}.html"
-    print(f"\n  Opening most-lapsed note: {most_lapsed[0].replace('.md','')}")
+    print(f"\nOpening most-lapsed note: {most_lapsed[0].replace('.md','')}")
     webbrowser.open(highlight.resolve().as_uri())
+
+
 
 
 
 if __name__ == "__main__":
     main()
-
-
-

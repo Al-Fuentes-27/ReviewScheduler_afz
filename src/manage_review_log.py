@@ -1,0 +1,555 @@
+"""
+manage_review_log.py — CLI tool for managing the FSRS review log.
+
+Part of the GB_PersonalStudyNotes Obsidian vault toolkit.
+Reads the path to review_log.csv from config.json, then allows
+the user to delete all review records for a given concept note,
+delete only the LAST review of a note (to re-grade it),
+rename a concept note across all its records,
+or display a summary table of all tracked notes.
+
+Usage:
+    python manage_review_log.py --summary
+    python manage_review_log.py --delete "💡 a — Aggregation in Data Analysis (Family) — Concept.md"
+    python manage_review_log.py --delete-last "💡 gro.a. — Grouped Aggregation — Concept.md"
+    python manage_review_log.py --rename "old note name" "new note name"
+    python manage_review_log.py --delete "..." --dry-run
+    python manage_review_log.py --config path/to/config.json --summary
+
+Requirements:
+    - pandas
+    - Python 3.9+
+"""
+
+import pandas as pd
+import json
+import os
+import argparse
+import sys
+import shutil
+import datetime
+from pathlib import Path
+
+
+
+# Resolve paths relative to THIS script's location, not the working directory.
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_PATH = SCRIPT_DIR / ".." / "data" / "config.json"
+
+
+
+
+class ReviewLogManager:
+    """Manages read/delete/rename operations on the review_log.csv file.
+
+    This class loads a spaced-repetition review log (CSV) whose path is
+    defined in a JSON configuration file. It supports deleting all records
+    for a specific concept note, deleting only the last review of a note
+    (useful for re-grading), renaming a concept note across all its records
+    (with smart fuzzy matching for dash/encoding variations), and printing
+    a summary of all tracked notes.
+
+    Attributes:
+        config_path (Path): Resolved path to the JSON configuration file.
+        log_path (str):     Path to the CSV review log, extracted from config.
+        df (pd.DataFrame):  In-memory representation of the CSV data.
+    """
+
+    def __init__(self, config_path: str = str(DEFAULT_CONFIG_PATH)) -> None:
+        """Initialize the manager: load config, resolve CSV path, load data.
+
+        Args:
+            config_path: Path to the JSON configuration file.
+                         Defaults to '../data/config.json' relative to this script.
+
+        Raises:
+            FileNotFoundError: If the config file or the CSV file does not exist.
+            KeyError:          If 'log_path' is missing from the config.
+        """
+        self.config_path = Path(config_path)
+        self.log_path: str = self._get_log_path_from_config()
+        self.df: pd.DataFrame = self._load_csv()
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _get_log_path_from_config(self) -> str:
+        """Read config.json and extract 'log_path', stripping trailing spaces.
+
+        The config file is known to contain trailing whitespace in keys and
+        values (e.g. "log_path ":  "..\\outputs\\review_log.csv "), so we
+        strip all string keys and values before lookup.
+
+        Returns:
+            The cleaned log_path string from the configuration.
+
+        Raises:
+            FileNotFoundError: If the config file does not exist.
+            KeyError:          If 'log_path' is not present after cleaning.
+        """
+        if not self.config_path.exists():
+            raise FileNotFoundError(
+                f"Configuration file not found at: {self.config_path.resolve()}"
+            )
+
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            raw_config = json.load(f)
+
+        # Strip trailing/leading whitespace from all keys and string values.
+        cleaned_config = {
+            k.strip(): v.strip() if isinstance(v, str) else v
+            for k, v in raw_config.items()
+        }
+
+        log_path = cleaned_config.get("log_path")
+        if not log_path:
+            raise KeyError("'log_path' not found in the configuration file.")
+
+        return log_path
+
+    def _load_csv(self) -> pd.DataFrame:
+        """Load the review log CSV into a pandas DataFrame.
+
+        Returns:
+            A DataFrame with all rows from the CSV.
+
+        Raises:
+            FileNotFoundError: If the CSV file does not exist at self.log_path.
+        """
+        if not os.path.exists(self.log_path):
+            raise FileNotFoundError(
+                f"Review log file not found at: {self.log_path}"
+            )
+        return pd.read_csv(self.log_path, encoding="utf-8")
+
+    def _save_csv(self, backup: bool = True) -> None:
+        """Save the current DataFrame back to the CSV file.
+
+        Args:
+            backup: If True (default), create a timestamped .bak copy of the
+                    CSV before overwriting it.
+        """
+        if backup:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = f"{self.log_path}.bak_{timestamp}"
+            shutil.copy2(self.log_path, backup_path)
+            print(f"💾 Backup saved to: {backup_path}")
+
+        self.df.to_csv(self.log_path, index=False, encoding="utf-8")
+
+    def _find_note_mask(self, note_name: str) -> pd.Series:
+        """Find all rows matching a note name using exact then normalized match.
+
+        This is a shared helper used by delete, delete-last, and rename.
+
+        Args:
+            note_name: The (already mojibake-fixed) note string to search for.
+
+        Returns:
+            A boolean Series (mask) where True = row matches the note.
+
+        Raises:
+            ValueError: If the DataFrame has no 'note' column.
+        """
+        if "note" not in self.df.columns:
+            raise ValueError("The 'note' column does not exist in the CSV file.")
+
+        # 1. Try exact match first.
+        mask = self.df["note"] == note_name
+
+        # 2. If exact match fails, try normalized match.
+        if mask.sum() == 0:
+            norm_target = self._normalize_text(note_name)
+            mask = self.df["note"].apply(self._normalize_text) == norm_target
+            if mask.sum() > 0:
+                print(
+                    "ℹ️  Exact match failed; matched via smart-normalization "
+                    "(ignored dash/space/case differences)."
+                )
+
+        return mask
+
+    # ------------------------------------------------------------------
+    # Static / utility methods
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def fix_terminal_mojibake(text: str) -> str:
+        """Attempt to fix Windows terminal encoding issues.
+
+        When a UTF-8 string (e.g. '💡') is displayed through a cp1252 terminal,
+        it appears as 'ðŸ'¡'. This method reverses that specific corruption.
+
+        Note: This is a best-effort fix. If the text is already valid UTF-8,
+        the encode('cp1252') step will raise UnicodeEncodeError and we return
+        the original text unchanged.
+
+        Args:
+            text: The potentially garbled input string.
+
+        Returns:
+            The corrected string, or the original if no fix was applicable.
+        """
+        if not text:
+            return text
+        try:
+            return text.encode("cp1252").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return text
+
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        """Normalize text for forgiving comparisons.
+
+        Handles:
+            - Em-dash (—), en-dash (–), and minus sign (−) → standard hyphen (-)
+            - Collapsed whitespace
+            - Lowercasing
+
+        Args:
+            text: The raw note-name string.
+
+        Returns:
+            A normalized string suitable for comparison.
+        """
+        if not text:
+            return ""
+        text = text.replace("\u2014", "-").replace("\u2013", "-").replace("\u2212", "-")
+        return " ".join(text.split()).lower()
+
+    # ------------------------------------------------------------------
+    # Public operations
+    # ------------------------------------------------------------------
+
+    def delete_records_by_note(self, note_name: str, dry_run: bool = False) -> int:
+        """Delete ALL rows matching the given note name.
+
+        Matching strategy:
+            1. Exact string equality on the 'note' column.
+            2. If no exact match is found, fall back to a normalized comparison
+               (case-insensitive, dash-agnostic, whitespace-collapsed).
+
+        Args:
+            note_name: The note filename to match, e.g.
+                       "💡 a — Aggregation in Data Analysis (Family) — Concept.md"
+            dry_run:   If True, report what WOULD be deleted without saving.
+
+        Returns:
+            The number of rows deleted (or that would be deleted in dry-run mode).
+
+        Raises:
+            ValueError: If the DataFrame has no 'note' column.
+        """
+        clean_note = self.fix_terminal_mojibake(note_name)
+        mask = self._find_note_mask(clean_note)
+        deleted_count = int(mask.sum())
+
+        if deleted_count == 0:
+            print(f"⚠️  No records found matching note:\n   '{clean_note}'")
+            print("ℹ️  Tip: Run with --summary to see all available notes.")
+            return 0
+
+        actual_note_name = self.df.loc[mask, "note"].iloc[0]
+
+        if dry_run:
+            print(f"🔍 [DRY RUN] Would delete {deleted_count} record(s) for note:")
+            print(f"   '{actual_note_name}'")
+            print("   (No changes were saved.)")
+            return deleted_count
+
+        # Confirm before destructive operation.
+        print(f"⚠️  About to delete {deleted_count} record(s) for note:")
+        print(f"   '{actual_note_name}'")
+        confirm = input("   Proceed? [y/N]: ").strip().lower()
+        if confirm != "y":
+            print("   Aborted. No changes made.")
+            return 0
+
+        self.df = self.df[~mask]
+        self._save_csv(backup=True)
+        print(f"✅ Deleted {deleted_count} record(s) for note:\n   '{actual_note_name}'")
+        return deleted_count
+
+    def delete_last_review(self, note_name: str, dry_run: bool = False) -> int:
+        """Delete ONLY the last (most recent) review record for a given note.
+
+        Use case: you graded a note but are unsure about the grade and want
+        to remove the last entry so you can review and grade it again.
+
+        The "last" record is determined by row position in the CSV (the CSV
+        is chronologically ordered, so the last row = most recent review).
+
+        Args:
+            note_name: The note filename to match, e.g.
+                       "💡 gro.a. — Grouped Aggregation — Concept.md"
+            dry_run:   If True, report what WOULD be deleted without saving.
+
+        Returns:
+            1 if a record was deleted (or would be in dry-run), 0 otherwise.
+
+        Raises:
+            ValueError: If the DataFrame has no 'note' column.
+        """
+        clean_note = self.fix_terminal_mojibake(note_name)
+        mask = self._find_note_mask(clean_note)
+        match_count = int(mask.sum())
+
+        if match_count == 0:
+            print(f"⚠️  No records found matching note:\n   '{clean_note}'")
+            print("ℹ️  Tip: Run with --summary to see all available notes.")
+            return 0
+
+        # Identify the LAST matching row (highest index = most recent in CSV).
+        last_idx = self.df.index[mask][-1]
+        last_row = self.df.loc[last_idx]
+
+        actual_note_name = last_row["note"]
+        last_date = last_row.get("date", "N/A")
+        last_grade = last_row.get("grade", "N/A")
+
+        if dry_run:
+            print(f"🔍 [DRY RUN] Would delete the LAST review for note:")
+            print(f"   Note:  '{actual_note_name}'")
+            print(f"   Date:  {last_date}")
+            print(f"   Grade: {last_grade}")
+            print(f"   (Row {last_idx + 2} in CSV, including header)")
+            print("   (No changes were saved.)")
+            return 1
+
+        # Confirm before deletion.
+        print(f"⚠️  About to delete the LAST review for note:")
+        print(f"   Note:  '{actual_note_name}'")
+        print(f"   Date:  {last_date}")
+        print(f"   Grade: {last_grade}")
+        print(f"   (Row {last_idx + 2} in CSV, including header)")
+        print(f"   ℹ️  This note has {match_count} total record(s); "
+              f"only the last one will be removed.")
+        confirm = input("   Proceed? [y/N]: ").strip().lower()
+        if confirm != "y":
+            print("   Aborted. No changes made.")
+            return 0
+
+        # Delete the single row and save.
+        self.df = self.df.drop(index=last_idx)
+        self._save_csv(backup=True)
+        print(
+            f"✅ Deleted last review for note:\n"
+            f"   '{actual_note_name}' (date: {last_date}, grade: {last_grade})\n"
+            f"   You can now re-grade this note."
+        )
+        return 1
+
+    def rename_note(
+        self, old_name: str, new_name: str, dry_run: bool = False
+    ) -> int:
+        """Rename a concept note across ALL its records in the CSV.
+
+        Finds every row whose 'note' column matches *old_name* and replaces
+        it with *new_name*. Uses the same two-pass matching strategy as
+        delete_records_by_note (exact first, then normalized fallback).
+
+        Args:
+            old_name: The current note filename to search for, e.g.
+                      "💡 gro.a. — Grouped Aggregation — Concept.md"
+            new_name: The new note filename to replace it with, e.g.
+                      "💡 gro.a. — Grouped Aggregation (Family) — Concept.md"
+            dry_run:  If True, report what WOULD be renamed without saving.
+
+        Returns:
+            The number of rows renamed (or that would be renamed in dry-run).
+
+        Raises:
+            ValueError: If the DataFrame has no 'note' column.
+            ValueError: If old_name and new_name resolve to the same string.
+        """
+        clean_old = self.fix_terminal_mojibake(old_name)
+        clean_new = self.fix_terminal_mojibake(new_name)
+
+        if "note" not in self.df.columns:
+            raise ValueError("The 'note' column does not exist in the CSV file.")
+
+        # Guard: prevent a no-op rename.
+        if clean_old.strip() == clean_new.strip():
+            raise ValueError(
+                "Old name and new name are identical. Nothing to rename."
+            )
+
+        mask = self._find_note_mask(clean_old)
+        renamed_count = int(mask.sum())
+
+        if renamed_count == 0:
+            print(f"⚠️  No records found matching note:\n   '{clean_old}'")
+            print("ℹ️  Tip: Run with --summary to see all available notes.")
+            return 0
+
+        actual_old_name = self.df.loc[mask, "note"].iloc[0]
+
+        if dry_run:
+            print(f"🔍 [DRY RUN] Would rename {renamed_count} record(s):")
+            print(f"   FROM: '{actual_old_name}'")
+            print(f"   TO:   '{clean_new}'")
+            print("   (No changes were saved.)")
+            return renamed_count
+
+        # Confirm before modifying.
+        print(f"⚠️  About to rename {renamed_count} record(s):")
+        print(f"   FROM: '{actual_old_name}'")
+        print(f"   TO:   '{clean_new}'")
+        confirm = input("   Proceed? [y/N]: ").strip().lower()
+        if confirm != "y":
+            print("   Aborted. No changes made.")
+            return 0
+
+        self.df.loc[mask, "note"] = clean_new
+        self._save_csv(backup=True)
+        print(
+            f"✅ Renamed {renamed_count} record(s):\n"
+            f"   FROM: '{actual_old_name}'\n"
+            f"   TO:   '{clean_new}'"
+        )
+        return renamed_count
+
+    def show_notes_summary(self) -> None:
+        """Display all unique notes and the number of review records for each.
+
+        Prints a formatted table to stdout with note names, record counts,
+        and totals.
+        """
+        if self.df.empty:
+            print("The review log is empty.")
+            return
+
+        counts = self.df["note"].value_counts().reset_index()
+        counts.columns = ["Note", "Records"]
+
+        print(f"\n{'NOTE NAME':<85} | {'RECORDS'}")
+        print("-" * 98)
+        for _, row in counts.iterrows():
+            print(f"{row['Note']:<85} | {row['Records']}")
+        print("-" * 98)
+        print(
+            f"Total Unique Notes: {len(counts):<66} | "
+            f"Total Records: {counts['Records'].sum()}\n"
+        )
+
+
+# ======================================================================
+# CLI entry point
+# ======================================================================
+
+
+def main() -> None:
+    """Parse command-line arguments and dispatch to ReviewLogManager."""
+
+    parser = argparse.ArgumentParser(
+        description="Manage review_log.csv records (delete, delete-last, rename, summary).",
+        epilog="""\
+Examples:
+  python manage_review_log.py --summary
+  python manage_review_log.py --delete "💡 a — Aggregation in Data Analysis (Family) — Concept.md"
+  python manage_review_log.py --delete-last "💡 gro.a. — Grouped Aggregation — Concept.md"
+  python manage_review_log.py --delete-last "💡 gro.a. — Grouped Aggregation — Concept.md" --dry-run
+  python manage_review_log.py --rename "old name" "new name"
+  python manage_review_log.py --rename "old name" "new name" --dry-run
+  python manage_review_log.py --config path/to/config.json --summary
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--delete",
+        type=str,
+        default=None,
+        help="Delete ALL records for a specific note string.",
+    )
+    parser.add_argument(
+        "--delete-last",
+        type=str,
+        default=None,
+        dest="delete_last",
+        help="Delete only the LAST (most recent) review record for a note "
+             "(useful when you want to re-grade).",
+    )
+    parser.add_argument(
+        "--rename",
+        nargs=2,
+        metavar=("OLD_NAME", "NEW_NAME"),
+        default=None,
+        help="Rename a note across all its records (old name, new name).",
+    )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Show all notes and their record counts.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what WOULD be changed without saving any changes.",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=str(DEFAULT_CONFIG_PATH),
+        help="Path to config.json (default: ../data/config.json relative to script).",
+    )
+
+    args = parser.parse_args()
+
+    # Require at least one action.
+    if not args.summary and not args.delete and not args.delete_last and not args.rename:
+        parser.print_help()
+        sys.exit(1)
+
+    # Validate --delete input.
+    if args.delete is not None and not args.delete.strip():
+        parser.error("--delete requires a non-empty note name.")
+
+    # Validate --delete-last input.
+    if args.delete_last is not None and not args.delete_last.strip():
+        parser.error("--delete-last requires a non-empty note name.")
+
+    # Validate --rename input.
+    if args.rename is not None:
+        if not args.rename[0].strip() or not args.rename[1].strip():
+            parser.error("--rename requires two non-empty note names.")
+
+    try:
+        manager = ReviewLogManager(config_path=args.config)
+
+        if args.summary:
+            manager.show_notes_summary()
+
+        if args.delete:
+            manager.delete_records_by_note(args.delete, dry_run=args.dry_run)
+
+        if args.delete_last:
+            manager.delete_last_review(args.delete_last, dry_run=args.dry_run)
+
+        if args.rename:
+            old_name, new_name = args.rename
+            manager.rename_note(old_name, new_name, dry_run=args.dry_run)
+
+    except FileNotFoundError as e:
+        print(f"❌ File not found: {e}")
+        sys.exit(1)
+    except KeyError as e:
+        print(f"❌ Configuration error: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"❌ Value error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        sys.exit(1)
+
+
+
+
+if __name__ == "__main__":
+    main()
+    
+    
+    
+    
+    
