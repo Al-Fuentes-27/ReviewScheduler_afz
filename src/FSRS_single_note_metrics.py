@@ -1,3 +1,30 @@
+"""
+Here is a plain and simple breakdown of every section and function in the script:
+
+| Location                               | What it does |
+| **Imports**                            | Loads standard tools for reading files, parsing data, and doing date math. |
+| **`load_config()`**                    | Reads your settings from `config.json` and stops the script if the file is missing. |
+| **`resolve_paths()`**                  | Chooses the correct file folders based on whether you are running in "test" or "production" mode. |
+| **`load_log()`**                       | Reads your main review history CSV file. |
+| **`load_edits()`**                     | Reads your note edit history CSV file (safely returns empty if the file doesn't exist yet). |
+| **`group_rows_by_note()`**             | Sorts your review history into separate lists for each individual note. |
+| **`group_edits_by_note()`**            | Sorts your edit history into separate lists for each individual note. |
+| **`sanitize_filename()`**              | Cleans up note titles (removes bad characters) so they can be safely saved as HTML file names. |
+| **`parse_date_flexible()`**            | Reads dates in multiple formats and converts them into a standard format the script can understand. |
+| **`compute_note_summary()`**           | Calculates the big-picture stats for a single note (retention, stability, difficulty, lapses, time spent). |
+| `compute_note_stability_trajectory()`  | Extracts the "stability" score from every review to draw the stability line chart. |
+| `compute_note_difficulty_trajectory()` | Extracts the "difficulty" score from every review to draw the difficulty line chart. |
+| `compute_note_grade_distribution()`    | Counts how many times you clicked Again, Hard, Good, or Easy to draw the donut chart. |
+| **`compute_note_r_distribution()`**    | Groups your "Retrievability" scores into buckets to draw the histogram bar chart. |
+| **`compute_note_review_timeline()`**   | Builds the detailed, row-by-row data for the history table at the bottom of the dashboard. |
+| **`compute_note_time_trajectory()`**   | Extracts how many minutes you spent on each review to draw the time-spent bar chart. |
+| **`compute_edit_events()`**            | Calculates exactly where note edits happened so they can be drawn as vertical lines on charts and dividers in the table. |
+| **`build_note_html()`**                | Generates the entire visual HTML dashboard (styling, layout, and Chart.js graphs) for a single note. |
+| **`print_section()`**                  | Prints a clean, formatted divider line in your terminal. |
+| **`print_note_summary()`**             | Prints a quick text summary of a note's stats in the terminal while the script is running. |
+| **`main()`**                           | The master controller: loads all data, processes every note, saves the HTML files, and automatically opens your most-lapsed note in the browser. |
+"""
+
 #!/usr/bin/env python3
 import re
 import csv
@@ -281,7 +308,9 @@ def compute_edit_events(note_rows: list, edit_rows: list) -> list:
         for parsed, idx, rn in review_dates:
             if parsed is None:
                 continue
-            if edit_date < parsed:
+            
+            #
+            if edit_date <= parsed:
                 # Edit falls before this review
                 if idx == 0:
                     x_position = -0.5   # before the very first review
@@ -351,7 +380,7 @@ def build_note_html(note_name: str,
 <!-- Chart.js Annotation Plugin for Vertical Lines -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
 <style>
-  :root {{
+:root {{
     --bg:       #f8f8f6;
     --surface:  #ffffff;
     --surface2: #f1f0eb;
@@ -365,109 +394,109 @@ def build_note_html(note_name: str,
     --purple:   #7F77DD;
     --magenta:  #D946EF;
     --radius:   10px;
-  }}
-  @media (prefers-color-scheme: dark) {{
+}}
+@media (prefers-color-scheme: dark) {{
     :root {{
-      --bg:      #1a1a18;
-      --surface: #242422;
-      --surface2:#2e2e2c;
-      --text:    #f0efe8;
-      --muted:   #9a9a94;
-      --border:  rgba(255,255,255,0.1);
-      --magenta: #E879F9;
+        --bg:      #1a1a18;
+        --surface: #242422;
+        --surface2:#2e2e2c;
+        --text:    #f0efe8;
+        --muted:   #9a9a94;
+        --border:  rgba(255,255,255,0.1);
+        --magenta: #E879F9;
     }}
-  }}
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{
+}}
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: var(--bg);
     color: var(--text);
     padding: 2rem;
     line-height: 1.5;
-  }}
-  h1 {{ font-size: 18px; font-weight: 500; margin-bottom: 0.2rem; }}
-  .subtitle {{ font-size: 12px; color: var(--muted); margin-bottom: 2rem; }}
-  .stat-grid {{
+}}
+h1 {{ font-size: 18px; font-weight: 500; margin-bottom: 0.2rem; }}
+.subtitle {{ font-size: 12px; color: var(--muted); margin-bottom: 2rem; }}
+.stat-grid {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 12px;
     margin-bottom: 1.5rem;
-  }}
-  .stat-card {{
+}}
+.stat-card {{
     background: var(--surface);
     border: 0.5px solid var(--border);
     border-radius: var(--radius);
     padding: 1rem;
-  }}
-  .stat-label {{ font-size: 12px; color: var(--muted); margin-bottom: 4px; }}
-  .stat-value {{ font-size: 20px; font-weight: 500; }}
-  .chart-grid-2 {{
+}}
+.stat-label {{ font-size: 12px; color: var(--muted); margin-bottom: 4px; }}
+.stat-value {{ font-size: 20px; font-weight: 500; }}
+.chart-grid-2 {{
     display: grid;
     grid-template-columns: repeat(2, minmax(0,1fr));
     gap: 16px;
     margin-bottom: 16px;
-  }}
-  .chart-grid-22 {{
+}}
+.chart-grid-22 {{
     display: grid;
     grid-template-columns: minmax(0,2fr) minmax(0,1fr);
     gap: 16px;
     margin-bottom: 16px;
-  }}
-  .chart-card {{
+}}
+.chart-card {{
     background: var(--surface);
     border: 0.5px solid var(--border);
     border-radius: var(--radius);
     padding: 1.25rem;
-  }}
-  .chart-title {{ font-size: 13px; color: var(--muted); margin-bottom: 10px; }}
-  .chart-wrap {{ position: relative; width: 100%; }}
-  .target-note {{ font-size: 11px; color: var(--muted); margin-top: 6px; }}
-  .legend {{
+}}
+.chart-title {{ font-size: 13px; color: var(--muted); margin-bottom: 10px; }}
+.chart-wrap {{ position: relative; width: 100%; }}
+.target-note {{ font-size: 11px; color: var(--muted); margin-top: 6px; }}
+.legend {{
     display: flex; flex-wrap: wrap; gap: 10px;
     margin-bottom: 8px; font-size: 12px; color: var(--muted);
-  }}
-  .legend-item {{ display: flex; align-items: center; gap: 5px; }}
-  .legend-dot {{
+}}
+.legend-item {{ display: flex; align-items: center; gap: 5px; }}
+.legend-dot {{
     width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
-  }}
-  .status-ok  {{ color: var(--green); }}
-  .status-bad {{ color: var(--red); }}
-  .no-data {{
+}}
+.status-ok  {{ color: var(--green); }}
+.status-bad {{ color: var(--red); }}
+.no-data {{
     font-size: 13px; color: var(--muted);
     padding: 2rem 0; text-align: center;
-  }}
-  /* ── Review timeline table ── */
-  .timeline-wrap {{ overflow-x: auto; }}
-  table {{
+}}
+/* ── Review timeline table ── */
+.timeline-wrap {{ overflow-x: auto; }}
+table {{
     width: 100%; border-collapse: collapse;
     font-size: 13px;
-  }}
-  th {{
+}}
+th {{
     font-size: 11px; color: var(--muted);
     text-align: left; padding: 6px 14px;
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
-  }}
-  td {{
+}}
+td {{
     padding: 9px 14px;
     border-bottom: 0.5px solid var(--border);
     white-space: nowrap;
-  }}
-  tr:last-child td {{ border-bottom: none; }}
-  tr:hover td {{ background: var(--surface2); }}
-  .badge {{
+}}
+tr:last-child td {{ border-bottom: none; }}
+tr:hover td {{ background: var(--surface2); }}
+.badge {{
     display: inline-block;
     padding: 2px 9px; border-radius: 4px;
     font-size: 11px; font-weight: 500;
     color: #fff;
-  }}
-  .badge-again  {{ background: #E24B4A; }}
-  .badge-hard   {{ background: #EF9F27; color: #1a1a18; }}
-  .badge-good   {{ background: #1D9E75; }}
-  .badge-easy   {{ background: #378ADD; }}
-  .lapse-flag   {{ font-size: 11px; color: var(--red); margin-left: 4px; }}
-  /* ── Edit Divider Row Styles (Magenta/Fuchsia Theme) ── */
-  .edit-divider-row td {{
+}}
+.badge-again  {{ background: #E24B4A; }}
+.badge-hard   {{ background: #EF9F27; color: #1a1a18; }}
+.badge-good   {{ background: #1D9E75; }}
+.badge-easy   {{ background: #378ADD; }}
+.lapse-flag   {{ font-size: 11px; color: var(--red); margin-left: 4px; }}
+/* ── Edit Divider Row Styles (Magenta/Fuchsia Theme) ── */
+.edit-divider-row td {{
     background: rgba(217, 70, 239, 0.08);
     color: #C026D3;
     text-align: center;
@@ -476,9 +505,9 @@ def build_note_html(note_name: str,
     padding: 12px 14px;
     border-bottom: 1px dashed var(--magenta);
     letter-spacing: 0.5px;
-  }}
-  .edit-divider-row:hover td {{ background: rgba(217, 70, 239, 0.15); }}
-  .edit-badge {{
+}}
+.edit-divider-row:hover td {{ background: rgba(217, 70, 239, 0.15); }}
+.edit-badge {{
     display: inline-block;
     background: var(--magenta);
     color: #1a1a18;
@@ -489,18 +518,95 @@ def build_note_html(note_name: str,
     margin-right: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-  }}
-  @media (prefers-color-scheme: dark) {{
+}}
+@media (prefers-color-scheme: dark) {{
     .edit-divider-row td {{
-      background: rgba(232, 121, 249, 0.1);
-      color: #E879F9;
+        background: rgba(232, 121, 249, 0.1);
+        color: #E879F9;
     }}
     .edit-divider-row:hover td {{ background: rgba(232, 121, 249, 0.15); }}
     .edit-badge {{
-      background: #C026D3;
-      color: #ffffff;
+        background: #C026D3;
+        color: #ffffff;
     }}
-  }}
+}}
+/* ── Edit History Section ── */
+.edit-history-list {{
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}}
+.edit-entry {{
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(217, 70, 239, 0.05);
+    border-left: 3px solid var(--magenta);
+    border-radius: 6px;
+    font-size: 13px;
+}}
+@media (prefers-color-scheme: dark) {{
+    .edit-entry {{ background: rgba(232, 121, 249, 0.07); }}
+}}
+.edit-entry .edit-badge {{
+    display: inline-block;
+    background: var(--magenta);
+    color: #1a1a18;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 2px;
+}}
+@media (prefers-color-scheme: dark) {{
+    .edit-entry .edit-badge {{ background: #C026D3; color: #ffffff; }}
+}}
+.edit-entry .edit-date {{
+    color: var(--muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 2px;
+}}
+.edit-entry .edit-desc {{
+    position: relative;
+    color: var(--text);
+    cursor: help;
+    flex: 1;
+}}
+.edit-entry .edit-desc:hover {{ text-decoration: underline dotted var(--magenta); }}
+.edit-entry .edit-desc::after {{
+    content: attr(data-full);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    min-width: 280px;
+    max-width: 520px;
+    padding: 10px 12px;
+    background: #1a1a18;
+    color: #f0efe8;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    border-radius: 6px;
+    border: 1px solid var(--magenta);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    z-index: 100;
+}}
+.edit-entry .edit-desc:hover::after {{
+    opacity: 1;
+    transform: translateY(0);
+}}
 </style>
 </head>
 <body>
@@ -510,140 +616,149 @@ def build_note_html(note_name: str,
 
 <!-- ── Stat cards ── -->
 <div class="stat-grid">
-  <div class="stat-card">
-    <div class="stat-label">Total reviews</div>
-    <div class="stat-value" id="s-total">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Retention rate</div>
-    <div class="stat-value" id="s-retention">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Current stability</div>
-    <div class="stat-value" id="s-stability">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Current difficulty</div>
-    <div class="stat-value" id="s-difficulty">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Total lapses</div>
-    <div class="stat-value" id="s-lapses">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Total Edits</div>
-    <div class="stat-value" id="s-edits" style="color: var(--magenta);">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Avg review time</div>
-    <div class="stat-value" id="s-time">—</div>
-  </div>
+    <div class="stat-card">
+        <div class="stat-label">Total reviews</div>
+        <div class="stat-value" id="s-total">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Retention rate</div>
+        <div class="stat-value" id="s-retention">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Current stability</div>
+        <div class="stat-value" id="s-stability">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Current difficulty</div>
+        <div class="stat-value" id="s-difficulty">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total lapses</div>
+        <div class="stat-value" id="s-lapses">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Edits</div>
+        <div class="stat-value" id="s-edits" style="color: var(--magenta);">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Avg review time</div>
+        <div class="stat-value" id="s-time">—</div>
+    </div>
 </div>
 
 <!-- ── Row 1: stability trajectory (wide) + grade donut ── -->
 <div class="chart-grid-22" style="margin-bottom:16px">
-  <div class="chart-card">
-    <div class="chart-title">Stability trajectory — actual value at each review</div>
-    <div class="legend">
-      <span class="legend-item">
-        <span class="legend-dot" style="background:#E24B4A"></span>again
-      </span>
-      <span class="legend-item">
-        <span class="legend-dot" style="background:#EF9F27"></span>hard
-      </span>
-      <span class="legend-item">
-        <span class="legend-dot" style="background:#1D9E75"></span>good
-      </span>
-      <span class="legend-item">
-        <span class="legend-dot" style="background:#378ADD"></span>easy
-      </span>
+    <div class="chart-card">
+        <div class="chart-title">Stability trajectory — actual value at each review</div>
+        <div class="legend">
+            <span class="legend-item">
+                <span class="legend-dot" style="background:#E24B4A"></span>again
+            </span>
+            <span class="legend-item">
+                <span class="legend-dot" style="background:#EF9F27"></span>hard
+            </span>
+            <span class="legend-item">
+                <span class="legend-dot" style="background:#1D9E75"></span>good
+            </span>
+            <span class="legend-item">
+                <span class="legend-dot" style="background:#378ADD"></span>easy
+            </span>
+        </div>
+        <div class="chart-wrap" style="height:210px">
+            <canvas id="c-stability"
+                    role="img" aria-label="Stability value at each review, colored by grade">
+                Stability trajectory.
+            </canvas>
+        </div>
+        <div class="target-note">
+            Points colored by grade. Dashed magenta line = note rewrite. A drop after the line = expected reset.
+        </div>
     </div>
-    <div class="chart-wrap" style="height:210px">
-      <canvas id="c-stability"
-        role="img" aria-label="Stability value at each review, colored by grade">
-        Stability trajectory.
-      </canvas>
+    <div class="chart-card">
+        <div class="chart-title">Grade distribution</div>
+        <div class="legend" id="grade-legend"></div>
+        <div class="chart-wrap" style="height:180px">
+            <canvas id="c-grade"
+                    role="img" aria-label="Donut chart of grade distribution for this note">
+                Grade breakdown.
+            </canvas>
+        </div>
     </div>
-    <div class="target-note">
-      Points colored by grade. Dashed magenta line = note rewrite. A drop after the line = expected reset.
-    </div>
-  </div>
-  <div class="chart-card">
-    <div class="chart-title">Grade distribution</div>
-    <div class="legend" id="grade-legend"></div>
-    <div class="chart-wrap" style="height:180px">
-      <canvas id="c-grade"
-        role="img" aria-label="Donut chart of grade distribution for this note">
-        Grade breakdown.
-      </canvas>
-    </div>
-  </div>
 </div>
 
 <!-- ── Row 2: difficulty trajectory + R distribution ── -->
 <div class="chart-grid-2" style="margin-bottom:16px">
-  <div class="chart-card">
-    <div class="chart-title">Difficulty trajectory — actual value at each review</div>
-    <div class="chart-wrap" style="height:190px">
-      <canvas id="c-difficulty"
-        role="img" aria-label="Difficulty value at each review">
-        Difficulty trajectory.
-      </canvas>
+    <div class="chart-card">
+        <div class="chart-title">Difficulty trajectory — actual value at each review</div>
+        <div class="chart-wrap" style="height:190px">
+            <canvas id="c-difficulty"
+                    role="img" aria-label="Difficulty value at each review">
+                Difficulty trajectory.
+            </canvas>
+        </div>
+        <div class="target-note">
+            Dashed line = neutral 5.5. Rising past 8 with repeated lapses → rewrite the note.
+        </div>
     </div>
-    <div class="target-note">
-      Dashed line = neutral 5.5. Rising past 8 with repeated lapses → rewrite the note.
+    <div class="chart-card">
+        <div class="chart-title">Retrievability at review time</div>
+        <div class="chart-wrap" style="height:190px">
+            <canvas id="c-rdist"
+                    role="img" aria-label="Histogram of R values at time of review">
+                R distribution.
+            </canvas>
+        </div>
+        <div class="target-note">
+            Healthy: reviews clustered in 0.8–1.0. Spread left = reviewing late or irregularly.
+        </div>
     </div>
-  </div>
-  <div class="chart-card">
-    <div class="chart-title">Retrievability at review time</div>
-    <div class="chart-wrap" style="height:190px">
-      <canvas id="c-rdist"
-        role="img" aria-label="Histogram of R values at time of review">
-        R distribution.
-      </canvas>
-    </div>
-    <div class="target-note">
-      Healthy: reviews clustered in 0.8–1.0. Spread left = reviewing late or irregularly.
-    </div>
-  </div>
 </div>
 
 <!-- ── Time per review chart ── -->
 <div class="chart-card" style="margin-bottom:16px">
-  <div class="chart-title">Review time per session (minutes)</div>
-  <div class="chart-wrap" style="height:160px">
-    <canvas id="c-time"
-      role="img" aria-label="Bar chart of review time in minutes per review session">
-      Review time per session.
-    </canvas>
-  </div>
-  <div class="target-note">
-    Bar colored by grade. Missing bars = time not recorded for that session.
-  </div>
+    <div class="chart-title">Review time per session (minutes)</div>
+    <div class="chart-wrap" style="height:160px">
+        <canvas id="c-time"
+                role="img" aria-label="Bar chart of review time in minutes per review session">
+            Review time per session.
+        </canvas>
+    </div>
+    <div class="target-note">
+        Bar colored by grade. Missing bars = time not recorded for that session.
+    </div>
 </div>
 
 <!-- ── Review timeline table ── -->
 <div class="chart-card">
-  <div class="chart-title">
-    Full review history — every review event for this note
-  </div>
-  <div class="timeline-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Date</th>
-          <th>Grade</th>
-          <th>Days since last</th>
-          <th>R at review</th>
-          <th>Stability after</th>
-          <th>Difficulty after</th>
-          <th>Time (min)</th>
-        </tr>
-      </thead>
-      <tbody id="timeline-body"></tbody>
-    </table>
-  </div>
+    <div class="chart-title">
+        Full review history — every review event for this note
+    </div>
+    <div class="timeline-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Date</th>
+                    <th>Grade</th>
+                    <th>Days since last</th>
+                    <th>R at review</th>
+                    <th>Stability after</th>
+                    <th>Difficulty after</th>
+                    <th>Time (min)</th>
+                </tr>
+            </thead>
+            <tbody id="timeline-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ── Edit History Section ── -->
+<div class="chart-card" id="edit-history-card" style="display:none; margin-top:16px">
+    <div class="chart-title">Edit history — all content changes to this note</div>
+    <div class="edit-history-list" id="edit-history-list"></div>
+    <div class="target-note">
+        Hover over a description to reveal the full text. Each entry matches a magenta divider in the timeline above.
+    </div>
 </div>
 
 <script>
@@ -653,7 +768,6 @@ const isDark  = matchMedia('(prefers-color-scheme: dark)').matches;
 const MAGENTA = isDark ? '#E879F9' : '#D946EF';
 const textClr = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
 const gridClr = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-
 const GREEN  = '#1D9E75';
 const BLUE   = '#378ADD';
 const AMBER  = '#EF9F27';
@@ -662,49 +776,47 @@ const PURPLE = '#7F77DD';
 const gradeColor = {{ again: RED, hard: AMBER, good: GREEN, easy: BLUE }};
 
 const baseScale = {{
-  x: {{ ticks: {{ color: textClr, font: {{ size: 11 }} }}, grid: {{ color: gridClr }} }},
-  y: {{ ticks: {{ color: textClr, font: {{ size: 11 }} }}, grid: {{ color: gridClr }} }}
+    x: {{ ticks: {{ color: textClr, font: {{ size: 11 }} }}, grid: {{ color: gridClr }} }},
+    y: {{ ticks: {{ color: textClr, font: {{ size: 11 }} }}, grid: {{ color: gridClr }} }}
 }};
 const baseOpts = {{
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {{ legend: {{ display: false }} }},
-  scales: baseScale
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {{ legend: {{ display: false }} }},
+    scales: baseScale
 }};
 
 // ── Build annotation objects dynamically from edit events ────────────────────
 const editAnnotations = {{}};
 editEvents.forEach((ev, i) => {{
-  editAnnotations['editLine' + i] = {{
-    type: 'line',
-    xMin: ev.x_position, xMax: ev.x_position,
-    borderColor: MAGENTA,
-    borderWidth: 2,
-    borderDash: [6, 4],
-    label: {{
-      display: true,
-      content: '✏️ ' + ev.edit_type.replace(/_/g, ' '),
-      position: 'start',
-      backgroundColor: MAGENTA,
-      color: isDark ? '#ffffff' : '#1a1a18',
-      font: {{ size: 10, weight: 'bold' }},
-      padding: 4,
-      borderRadius: 4
-    }}
-  }};
+    editAnnotations['editLine' + i] = {{
+        type: 'line',
+        xMin: ev.x_position, xMax: ev.x_position,
+        borderColor: MAGENTA,
+        borderWidth: 2,
+        borderDash: [6, 4],
+        label: {{
+            display: true,
+            content: '✏️ ' + ev.edit_type.replace(/_/g, ' '),
+            position: 'start',
+            backgroundColor: MAGENTA,
+            color: isDark ? '#ffffff' : '#1a1a18',
+            font: {{ size: 10, weight: 'bold' }},
+            padding: 4,
+            borderRadius: 4
+        }}
+    }};
 }});
 const hasEdits = editEvents.length > 0;
 const annotationPlugin = hasEdits
-  ? {{ annotation: {{ annotations: editAnnotations }} }}
-  : {{}};
-
+    ? {{ annotation: {{ annotations: editAnnotations }} }}
+    : {{}};
 
 // ── Header ───────────────────────────────────────────────────────────────────
 document.getElementById('note-title').textContent = noteName;
 document.getElementById('subtitle').textContent =
-  summaryData.total_reviews + ' reviews  ·  last reviewed ' +
-  summaryData.last_reviewed;
-
+    summaryData.total_reviews + ' reviews  ·  last reviewed ' +
+    summaryData.last_reviewed;
 
 // ── Stat cards ───────────────────────────────────────────────────────────────
 document.getElementById('s-total').textContent     = summaryData.total_reviews;
@@ -715,258 +827,272 @@ document.getElementById('s-edits').textContent     = totalEdits;
 
 const timeEl = document.getElementById('s-time');
 if (summaryData.avg_review_time !== null && summaryData.avg_review_time !== undefined) {{
-  timeEl.textContent = summaryData.avg_review_time + ' min';
+    timeEl.textContent = summaryData.avg_review_time + ' min';
 }} else {{
-  timeEl.textContent = '—';
-  timeEl.style.color = 'var(--muted)';
+    timeEl.textContent = '—';
+    timeEl.style.color = 'var(--muted)';
 }}
 
 const retEl = document.getElementById('s-retention');
 retEl.textContent = retentionDisplay;
 if (summaryData.retention_rate !== null) {{
-  retEl.className = 'stat-value ' +
-    (summaryData.retention_rate >= 88 ? 'status-ok' : 'status-bad');
+    retEl.className = 'stat-value ' +
+        (summaryData.retention_rate >= 88 ? 'status-ok' : 'status-bad');
 }}
-
 
 // ── Stability trajectory ──────────────────────────────────────────────────────
 new Chart(document.getElementById('c-stability'), {{
-  type: 'line',
-  data: {{
-    labels: stabilityData.map(d => 'R' + d.review_n + '  ' + d.date),
-    datasets: [{{
-      label: 'Stability (days)',
-      data: stabilityData.map(d => d.stability),
-      borderColor: GREEN,
-      backgroundColor: 'rgba(29,158,117,0.07)',
-      fill: true,
-      tension: 0.25,
-      pointRadius: 6,
-      pointHoverRadius: 8,
-      pointBackgroundColor: stabilityData.map(d => gradeColor[d.grade]),
-      pointBorderColor: stabilityData.map(d => gradeColor[d.grade]),
-    }}]
-  }},
-  options: {{
-    ...baseOpts,
-    scales: {{
-      x: {{ ticks: {{ color: textClr, font: {{ size: 10 }}, maxRotation: 30 }}, grid: {{ color: gridClr }} }},
-      y: {{ ticks: {{ color: textClr, font: {{ size: 11 }}, callback: v => v + 'd' }}, grid: {{ color: gridClr }} }}
+    type: 'line',
+    data: {{
+        labels: stabilityData.map(d => 'R' + d.review_n + '  ' + d.date),
+        datasets: [{{
+            label: 'Stability (days)',
+            data: stabilityData.map(d => d.stability),
+            borderColor: GREEN,
+            backgroundColor: 'rgba(29,158,117,0.07)',
+            fill: true,
+            tension: 0.25,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            pointBackgroundColor: stabilityData.map(d => gradeColor[d.grade]),
+            pointBorderColor: stabilityData.map(d => gradeColor[d.grade]),
+        }}]
     }},
-    plugins: {{
-      legend: {{ display: false }},
-      ...annotationPlugin,
-      tooltip: {{
-        callbacks: {{
-          label: ctx => {{
-            const d = stabilityData[ctx.dataIndex];
-            return [
-              'Stability: ' + d.stability + 'd',
-              'Grade: ' + d.grade,
-            ];
-          }}
+    options: {{
+        ...baseOpts,
+        scales: {{
+            x: {{ ticks: {{ color: textClr, font: {{ size: 10 }}, maxRotation: 30 }}, grid: {{ color: gridClr }} }},
+            y: {{ ticks: {{ color: textClr, font: {{ size: 11 }}, callback: v => v + 'd' }}, grid: {{ color: gridClr }} }}
+        }},
+        plugins: {{
+            legend: {{ display: false }},
+            ...annotationPlugin,
+            tooltip: {{
+                callbacks: {{
+                    label: ctx => {{
+                        const d = stabilityData[ctx.dataIndex];
+                        return [
+                            'Stability: ' + d.stability + 'd',
+                            'Grade: ' + d.grade,
+                        ];
+                    }}
+                }}
+            }}
         }}
-      }}
     }}
-  }}
 }});
-
 
 // ── Grade distribution ────────────────────────────────────────────────────────
 const legendEl = document.getElementById('grade-legend');
 gradeData.forEach(g => {{
-  if (g.count === 0) return;
-  legendEl.innerHTML +=
-    '<span class="legend-item">' +
-    '<span class="legend-dot" style="background:' + gradeColor[g.grade] + '"></span>' +
-    g.grade + ' ' + g.pct + '%</span>';
+    if (g.count === 0) return;
+    legendEl.innerHTML +=
+        '<span class="legend-item">' +
+        '<span class="legend-dot" style="background:' + gradeColor[g.grade] + '"></span>' +
+        g.grade + ' ' + g.pct + '%</span>';
 }});
 
 new Chart(document.getElementById('c-grade'), {{
-  type: 'doughnut',
-  data: {{
-    labels: gradeData.map(g => g.grade),
-    datasets: [{{
-      data: gradeData.map(g => g.count),
-      backgroundColor: gradeData.map(g => gradeColor[g.grade]),
-      borderWidth: 0,
-      hoverOffset: 6
-    }}]
-  }},
-  options: {{
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {{ legend: {{ display: false }} }},
-    cutout: '60%'
-  }}
+    type: 'doughnut',
+    data: {{
+        labels: gradeData.map(g => g.grade),
+        datasets: [{{
+            data: gradeData.map(g => g.count),
+            backgroundColor: gradeData.map(g => gradeColor[g.grade]),
+            borderWidth: 0,
+            hoverOffset: 6
+        }}]
+    }},
+    options: {{
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {{ legend: {{ display: false }} }},
+        cutout: '60%'
+    }}
 }});
-
 
 // ── Difficulty trajectory ─────────────────────────────────────────────────────
 new Chart(document.getElementById('c-difficulty'), {{
-  type: 'line',
-  data: {{
-    labels: difficultyData.map(d => 'R' + d.review_n),
-    datasets: [
-      {{
-        label: 'Difficulty',
-        data: difficultyData.map(d => d.difficulty),
-        borderColor: PURPLE,
-        backgroundColor: 'rgba(127,119,221,0.07)',
-        fill: true,
-        tension: 0.25,
-        pointRadius: 5,
-        pointHoverRadius: 7,
-        pointBackgroundColor: difficultyData.map(d => gradeColor[d.grade]),
-        pointBorderColor: difficultyData.map(d => gradeColor[d.grade]),
-      }},
-      {{
-        label: 'Neutral 5.5',
-        data: difficultyData.map(() => 5.5),
-        borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)',
-        borderDash: [5, 4],
-        pointRadius: 0,
-        fill: false,
-      }}
-    ]
-  }},
-  options: {{
-    ...baseOpts,
-    scales: {{
-      x: baseScale.x,
-      y: {{
-        min: 1, max: 10,
-        ticks: {{ color: textClr, font: {{ size: 11 }} }},
-        grid: {{ color: gridClr }}
-      }}
+    type: 'line',
+    data: {{
+        labels: difficultyData.map(d => 'R' + d.review_n),
+        datasets: [
+            {{
+                label: 'Difficulty',
+                data: difficultyData.map(d => d.difficulty),
+                borderColor: PURPLE,
+                backgroundColor: 'rgba(127,119,221,0.07)',
+                fill: true,
+                tension: 0.25,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                pointBackgroundColor: difficultyData.map(d => gradeColor[d.grade]),
+                pointBorderColor: difficultyData.map(d => gradeColor[d.grade]),
+            }},
+            {{
+                label: 'Neutral 5.5',
+                data: difficultyData.map(() => 5.5),
+                borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)',
+                borderDash: [5, 4],
+                pointRadius: 0,
+                fill: false,
+            }}
+        ]
     }},
-    plugins: {{
-      ...baseOpts.plugins,
-      ...annotationPlugin
+    options: {{
+        ...baseOpts,
+        scales: {{
+            x: baseScale.x,
+            y: {{
+                min: 1, max: 10,
+                ticks: {{ color: textClr, font: {{ size: 11 }} }},
+                grid: {{ color: gridClr }}
+            }}
+        }},
+        plugins: {{
+            ...baseOpts.plugins,
+            ...annotationPlugin
+        }}
     }}
-  }}
 }});
-
 
 // ── R distribution ────────────────────────────────────────────────────────────
 const rColors = [RED, AMBER, AMBER, GREEN, BLUE];
 new Chart(document.getElementById('c-rdist'), {{
-  type: 'bar',
-  data: {{
-    labels: rDistData.map(d => d.bucket),
-    datasets: [{{
-      label: 'Reviews',
-      data: rDistData.map(d => d.count),
-      backgroundColor: rColors,
-      borderRadius: 4,
-    }}]
-  }},
-  options: {{
-    ...baseOpts,
-    scales: {{
-      x: {{ ticks: {{ color: textClr, font: {{ size: 11 }}, autoSkip: false }}, grid: {{ color: gridClr }} }},
-      y: {{
-        ticks: {{ color: textClr, font: {{ size: 11 }}, stepSize: 1 }},
-        grid: {{ color: gridClr }}
-      }}
+    type: 'bar',
+    data: {{
+        labels: rDistData.map(d => d.bucket),
+        datasets: [{{
+            label: 'Reviews',
+            data: rDistData.map(d => d.count),
+            backgroundColor: rColors,
+            borderRadius: 4,
+        }}]
+    }},
+    options: {{
+        ...baseOpts,
+        scales: {{
+            x: {{ ticks: {{ color: textClr, font: {{ size: 11 }}, autoSkip: false }}, grid: {{ color: gridClr }} }},
+            y: {{
+                ticks: {{ color: textClr, font: {{ size: 11 }}, stepSize: 1 }},
+                grid: {{ color: gridClr }}
+            }}
+        }}
     }}
-  }}
 }});
-
 
 // ── Time per review chart ───────────────────────────────────────────────────────
 const hasTimeData = timeData.some(d => d.time_min !== null);
 if (hasTimeData) {{
-  new Chart(document.getElementById('c-time'), {{
-    type: 'bar',
-    data: {{
-      labels: timeData.map(d => 'R' + d.review_n + ' ' + d.date),
-      datasets: [{{
-        label: 'Time (min)',
-        data: timeData.map(d => d.time_min),
-        backgroundColor: timeData.map(d => gradeColor[d.grade]),
-        borderRadius: 4,
-      }}]
-    }},
-    options: {{
-      ...baseOpts,
-      scales: {{
-        x: {{ ticks: {{ color: textClr, font: {{ size: 10 }}, maxRotation: 30 }}, grid: {{ color: gridClr }} }},
-        y: {{
-          min: 0,
-          ticks: {{ color: textClr, font: {{ size: 11 }}, callback: v => v + ' min' }},
-          grid: {{ color: gridClr }}
-        }}
-      }},
-      plugins: {{
-        legend: {{ display: false }},
-        ...annotationPlugin,
-        tooltip: {{
-          callbacks: {{
-            label: ctx => {{
-              const d = timeData[ctx.dataIndex];
-              return d.time_min !== null
-                ? ['Time: ' + d.time_min + ' min', 'Grade: ' + d.grade]
-                : ['Time: not recorded'];
+    new Chart(document.getElementById('c-time'), {{
+        type: 'bar',
+        data: {{
+            labels: timeData.map(d => 'R' + d.review_n + ' ' + d.date),
+            datasets: [{{
+                label: 'Time (min)',
+                data: timeData.map(d => d.time_min),
+                backgroundColor: timeData.map(d => gradeColor[d.grade]),
+                borderRadius: 4,
+            }}]
+        }},
+        options: {{
+            ...baseOpts,
+            scales: {{
+                x: {{ ticks: {{ color: textClr, font: {{ size: 10 }}, maxRotation: 30 }}, grid: {{ color: gridClr }} }},
+                y: {{
+                    min: 0,
+                    ticks: {{ color: textClr, font: {{ size: 11 }}, callback: v => v + ' min' }},
+                    grid: {{ color: gridClr }}
+                }}
+            }},
+            plugins: {{
+                legend: {{ display: false }},
+                ...annotationPlugin,
+                tooltip: {{
+                    callbacks: {{
+                        label: ctx => {{
+                            const d = timeData[ctx.dataIndex];
+                            return d.time_min !== null
+                                ? ['Time: ' + d.time_min + ' min', 'Grade: ' + d.grade]
+                                : ['Time: not recorded'];
+                        }}
+                    }}
+                }}
             }}
-          }}
         }}
-      }}
-    }}
-  }});
+    }});
 }} else {{
-  document.getElementById('c-time').parentElement.innerHTML =
-    '<div class="no-data">No review time recorded yet — enter minutes after each grade.</div>';
+    document.getElementById('c-time').parentElement.innerHTML =
+        '<div class="no-data">No review time recorded yet — enter minutes after each grade.</div>';
 }}
-
 
 // ── Review timeline table ─────────────────────────────────────────────────────
 const tbody = document.getElementById('timeline-body');
-
 timelineData.forEach(r => {{
+    // Inject edit epoch-dividers before the appropriate review row
+    editEvents.forEach(ev => {{
+        if (ev.before_review_n === r.review_n) {{
+            const typeLabel = ev.edit_type.replace(/_/g, ' ').toUpperCase();
+            tbody.innerHTML +=
+                '<tr class="edit-divider-row">' +
+                '<td colspan="8">' +
+                '<span class="edit-badge">✏️ ' + typeLabel + '</span>' +
+                ev.date +
+                '</td></tr>';
+        }}
+    }});
 
-  // Inject edit epoch-dividers before the appropriate review row
-  editEvents.forEach(ev => {{
-    if (ev.before_review_n === r.review_n) {{
-      const typeLabel = ev.edit_type.replace(/_/g, ' ').toUpperCase();
-      tbody.innerHTML +=
-        '<tr class="edit-divider-row">' +
-        '<td colspan="8">' +
-        '<span class="edit-badge">✏️ ' + typeLabel + '</span>' +
-        (ev.description ? ev.description + ' — ' : '') + ev.date +
-        '</td></tr>';
-    }}
-  }});
+    const isFirst = r.R_at_review === 'new';
+    const isLapse = r.grade === 'again' && !isFirst;
+    const rDisplay = isFirst ? '— first review' : r.R_at_review;
+    const elapsedDisplay = r.review_n === 1 ? '—' : r.elapsed + 'd';
+    const lapseFlag = isLapse ? '<span class="lapse-flag">⚠ lapse</span>' : '';
+    const timeDisplay = (r.review_time !== null && r.review_time !== undefined)
+        ? r.review_time + ' min'
+        : '—';
 
-  const isFirst = r.R_at_review === 'new';
-  const isLapse = r.grade === 'again' && !isFirst;
-  const rDisplay = isFirst ? '— first review' : r.R_at_review;
-  const elapsedDisplay = r.review_n === 1 ? '—' : r.elapsed + 'd';
-  const lapseFlag = isLapse ? '<span class="lapse-flag">⚠ lapse</span>' : '';
-
-  const timeDisplay = (r.review_time !== null && r.review_time !== undefined)
-    ? r.review_time + ' min'
-    : '—';
-
-  tbody.innerHTML +=
-    '<tr>' +
-    '<td style="color:var(--muted)">' + r.review_n + '</td>' +
-    '<td>' + r.date + '</td>' +
-    '<td>' +
-      '<span class="badge badge-' + r.grade + '">' + r.grade + '</span>' +
-      lapseFlag +
-    '</td>' +
-    '<td>' + elapsedDisplay + '</td>' +
-    '<td>' + rDisplay + '</td>' +
-    '<td>' + r.stability + 'd</td>' +
-    '<td>' + r.difficulty + '</td>' +
-    '<td>' + timeDisplay + '</td>' +
-    '</tr>';
+    tbody.innerHTML +=
+        '<tr>' +
+        '<td style="color:var(--muted)">' + r.review_n + '</td>' +
+        '<td>' + r.date + '</td>' +
+        '<td>' +
+            '<span class="badge badge-' + r.grade + '">' + r.grade + '</span>' +
+            lapseFlag +
+        '</td>' +
+        '<td>' + elapsedDisplay + '</td>' +
+        '<td>' + rDisplay + '</td>' +
+        '<td>' + r.stability + 'd</td>' +
+        '<td>' + r.difficulty + '</td>' +
+        '<td>' + timeDisplay + '</td>' +
+        '</tr>';
 }});
 
+// ── Edit History Section ─────────────────────────────────────────────────────
+if (editEvents.length > 0) {{
+    const editHistoryCard = document.getElementById('edit-history-card');
+    const editHistoryList = document.getElementById('edit-history-list');
+    editHistoryCard.style.display = 'block';
+    
+    editEvents.forEach(ev => {{
+        const typeLabel = ev.edit_type.replace(/_/g, ' ').toUpperCase();
+        const maxLen = 160;
+        const shortDesc = ev.description && ev.description.length > maxLen
+            ? ev.description.slice(0, maxLen).trim() + '…'
+            : (ev.description || '');
+        const fullDesc = (ev.description || '').replace(/"/g, '&quot;');
+        
+        editHistoryList.innerHTML +=
+            '<div class="edit-entry">' +
+                '<span class="edit-badge">✏️ ' + typeLabel + '</span>' +
+                '<span class="edit-date">' + ev.date + '</span>' +
+                '<span class="edit-desc" data-full="' + fullDesc + '">' + shortDesc + '</span>' +
+            '</div>';
+    }});
+}}
 </script>
 </body>
 </html>"""
+
     return html
 
 
