@@ -10,9 +10,14 @@ or display a summary table of all tracked notes.
 
 Usage:
     python manage_review_log.py --summary
+        - display a summary table of all tracked notes
     python manage_review_log.py --delete "💡 a — Aggregation in Data Analysis (Family) — Concept.md"
+        - delete all review records for a given concept note
     python manage_review_log.py --delete-last "💡 gro.a. — Grouped Aggregation — Concept.md"
+        - delete only the LAST review of a note (to re-grade it)
     python manage_review_log.py --rename "old note name" "new note name"
+        - rename a concept note across all its records
+        
     python manage_review_log.py --delete "..." --dry-run
     python manage_review_log.py --config path/to/config.json --summary
 
@@ -68,7 +73,11 @@ class ReviewLogManager:
         """
         self.config_path = Path(config_path)
         self.log_path: str = self._get_log_path_from_config()
-        self.df: pd.DataFrame = self._load_csv()
+        self.edits_path: str = self._get_edits_path_from_config()   # NEW
+        self.df: pd.DataFrame = self._load_csv(self.log_path)       # signature changed
+        self.df_edits: pd.DataFrame | None = self._load_edits_csv() # NEW
+
+
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -108,7 +117,35 @@ class ReviewLogManager:
 
         return log_path
 
-    def _load_csv(self) -> pd.DataFrame:
+    def _get_edits_path_from_config(self) -> str:
+        """Read config.json and extract 'edits_path' for note_edits.csv.
+    
+        Falls back to looking for 'note_edits.csv' in the same directory
+        as the review log if 'edits_path' is not explicitly configured.
+        """
+        if not self.config_path.exists():
+            raise FileNotFoundError(
+                f"Configuration file not found at: {self.config_path.resolve()}"
+            )
+    
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            raw_config = json.load(f)
+    
+        cleaned_config = {
+            k.strip(): v.strip() if isinstance(v, str) else v
+            for k, v in raw_config.items()
+        }
+    
+        edits_path = cleaned_config.get("edits_path")
+        if edits_path:
+            return edits_path
+    
+        # Fallback: look for note_edits.csv in the same directory as review_log.
+        log_dir = os.path.dirname(os.path.abspath(self.log_path))
+
+        return os.path.join(log_dir, "note_edits.csv")
+
+    def _load_csv(self, path: str) -> pd.DataFrame:
         """Load the review log CSV into a pandas DataFrame.
 
         Returns:
@@ -117,28 +154,40 @@ class ReviewLogManager:
         Raises:
             FileNotFoundError: If the CSV file does not exist at self.log_path.
         """
-        if not os.path.exists(self.log_path):
+        if not os.path.exists(path):
             raise FileNotFoundError(
                 f"Review log file not found at: {self.log_path}"
             )
-        return pd.read_csv(self.log_path, encoding="utf-8")
 
-    def _save_csv(self, backup: bool = True) -> None:
+        return pd.read_csv(path, encoding="utf-8")
+
+    def _load_edits_csv(self) -> pd.DataFrame | None:
+        """Load the note_edits CSV into a pandas DataFrame.
+    
+        Returns None if the file does not exist (non-fatal).
+        """
+        if not os.path.exists(self.edits_path):
+            return None
+
+        return pd.read_csv(self.edits_path, encoding="utf-8")
+
+    def _save_csv(self, path: str, df: pd.DataFrame, backup: bool = True) -> None:
         """Save the current DataFrame back to the CSV file.
 
         Args:
             backup: If True (default), create a timestamped .bak copy of the
                     CSV before overwriting it.
         """
+
         if backup:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_path = f"{self.log_path}.bak_{timestamp}"
-            shutil.copy2(self.log_path, backup_path)
-            print(f"💾 Backup saved to: {backup_path}")
+            backup_path = f"{path}.bak_{timestamp}"
+            shutil.copy2(path, backup_path)
+            print(f"  💾 Backup saved to: {backup_path}")
+    
+        df.to_csv(path, index=False, encoding="utf-8")
 
-        self.df.to_csv(self.log_path, index=False, encoding="utf-8")
-
-    def _find_note_mask(self, note_name: str) -> pd.Series:
+    def _find_note_mask(self, df: pd.DataFrame, note_name: str) -> pd.Series:
         """Find all rows matching a note name using exact then normalized match.
 
         This is a shared helper used by delete, delete-last, and rename.
@@ -152,23 +201,25 @@ class ReviewLogManager:
         Raises:
             ValueError: If the DataFrame has no 'note' column.
         """
-        if "note" not in self.df.columns:
+
+
+        if "note" not in df.columns:
             raise ValueError("The 'note' column does not exist in the CSV file.")
-
-        # 1. Try exact match first.
-        mask = self.df["note"] == note_name
-
-        # 2. If exact match fails, try normalized match.
+    
+        mask = df["note"] == note_name
+    
         if mask.sum() == 0:
             norm_target = self._normalize_text(note_name)
-            mask = self.df["note"].apply(self._normalize_text) == norm_target
+            mask = df["note"].apply(self._normalize_text) == norm_target
             if mask.sum() > 0:
                 print(
-                    "ℹ️  Exact match failed; matched via smart-normalization "
+                    "  ℹ️  Exact match failed; matched via smart-normalization "
                     "(ignored dash/space/case differences)."
                 )
 
         return mask
+
+
 
     # ------------------------------------------------------------------
     # Static / utility methods
@@ -218,6 +269,8 @@ class ReviewLogManager:
         text = text.replace("\u2014", "-").replace("\u2013", "-").replace("\u2212", "-")
         return " ".join(text.split()).lower()
 
+
+
     # ------------------------------------------------------------------
     # Public operations
     # ------------------------------------------------------------------
@@ -242,7 +295,7 @@ class ReviewLogManager:
             ValueError: If the DataFrame has no 'note' column.
         """
         clean_note = self.fix_terminal_mojibake(note_name)
-        mask = self._find_note_mask(clean_note)
+        mask = self._find_note_mask(self.df, clean_note)
         deleted_count = int(mask.sum())
 
         if deleted_count == 0:
@@ -267,7 +320,7 @@ class ReviewLogManager:
             return 0
 
         self.df = self.df[~mask]
-        self._save_csv(backup=True)
+        self._save_csv(self.log_path, self.df, backup=True)
         print(f"✅ Deleted {deleted_count} record(s) for note:\n   '{actual_note_name}'")
         return deleted_count
 
@@ -292,7 +345,7 @@ class ReviewLogManager:
             ValueError: If the DataFrame has no 'note' column.
         """
         clean_note = self.fix_terminal_mojibake(note_name)
-        mask = self._find_note_mask(clean_note)
+        mask = self._find_note_mask(self.df, clean_note)
         match_count = int(mask.sum())
 
         if match_count == 0:
@@ -332,17 +385,16 @@ class ReviewLogManager:
 
         # Delete the single row and save.
         self.df = self.df.drop(index=last_idx)
-        self._save_csv(backup=True)
+        self._save_csv(self.log_path, self.df, backup=True)
         print(
             f"✅ Deleted last review for note:\n"
             f"   '{actual_note_name}' (date: {last_date}, grade: {last_grade})\n"
             f"   You can now re-grade this note."
         )
+
         return 1
 
-    def rename_note(
-        self, old_name: str, new_name: str, dry_run: bool = False
-    ) -> int:
+    def rename_note(self, old_name: str, new_name: str, dry_run: bool = False) -> int:
         """Rename a concept note across ALL its records in the CSV.
 
         Finds every row whose 'note' column matches *old_name* and replaces
@@ -365,51 +417,75 @@ class ReviewLogManager:
         """
         clean_old = self.fix_terminal_mojibake(old_name)
         clean_new = self.fix_terminal_mojibake(new_name)
-
-        if "note" not in self.df.columns:
-            raise ValueError("The 'note' column does not exist in the CSV file.")
-
-        # Guard: prevent a no-op rename.
+    
         if clean_old.strip() == clean_new.strip():
-            raise ValueError(
-                "Old name and new name are identical. Nothing to rename."
-            )
-
-        mask = self._find_note_mask(clean_old)
-        renamed_count = int(mask.sum())
-
-        if renamed_count == 0:
+            raise ValueError("Old name and new name are identical. Nothing to rename.")
+    
+        # --- review_log.csv ---
+        mask_reviews = self._find_note_mask(self.df, clean_old)
+        renamed_reviews = int(mask_reviews.sum())
+    
+        # --- note_edits.csv ---
+        mask_edits = pd.Series(dtype=bool)
+        renamed_edits = 0
+        if self.df_edits is not None and not self.df_edits.empty:
+            mask_edits = self._find_note_mask(self.df_edits, clean_old)
+            renamed_edits = int(mask_edits.sum())
+    
+        total_matches = renamed_reviews + renamed_edits
+    
+        if total_matches == 0:
             print(f"⚠️  No records found matching note:\n   '{clean_old}'")
             print("ℹ️  Tip: Run with --summary to see all available notes.")
             return 0
-
-        actual_old_name = self.df.loc[mask, "note"].iloc[0]
-
+    
+        # Determine the actual stored name for display.
+        actual_old_name = clean_old
+        if renamed_reviews > 0:
+            actual_old_name = self.df.loc[mask_reviews, "note"].iloc[0]
+        elif renamed_edits > 0:
+            actual_old_name = self.df_edits.loc[mask_edits, "note"].iloc[0]
+    
         if dry_run:
-            print(f"🔍 [DRY RUN] Would rename {renamed_count} record(s):")
+            print(f"🔍 [DRY RUN] Would rename across files:")
             print(f"   FROM: '{actual_old_name}'")
             print(f"   TO:   '{clean_new}'")
+            print(f"   📄 review_log.csv:  {renamed_reviews} record(s)")
+            print(f"   📝 note_edits.csv:  {renamed_edits} record(s)")
             print("   (No changes were saved.)")
-            return renamed_count
-
-        # Confirm before modifying.
-        print(f"⚠️  About to rename {renamed_count} record(s):")
+            return renamed_reviews
+    
+        print(f"⚠️  About to rename across files:")
         print(f"   FROM: '{actual_old_name}'")
         print(f"   TO:   '{clean_new}'")
+        print(f"   📄 review_log.csv:  {renamed_reviews} record(s)")
+        print(f"   📝 note_edits.csv:  {renamed_edits} record(s)")
         confirm = input("   Proceed? [y/N]: ").strip().lower()
         if confirm != "y":
             print("   Aborted. No changes made.")
-            return 0
 
-        self.df.loc[mask, "note"] = clean_new
-        self._save_csv(backup=True)
+            return 0
+    
+        # Apply rename to review_log.csv
+        if renamed_reviews > 0:
+            self.df.loc[mask_reviews, "note"] = clean_new
+            self._save_csv(self.log_path, self.df, backup=True)
+            print(f"  ✅ review_log.csv: renamed {renamed_reviews} record(s).")
+    
+        # Apply rename to note_edits.csv
+        if renamed_edits > 0:
+            self.df_edits.loc[mask_edits, "note"] = clean_new
+            self._save_csv(self.edits_path, self.df_edits, backup=True)
+            print(f"  ✅ note_edits.csv: renamed {renamed_edits} record(s).")
+    
         print(
-            f"✅ Renamed {renamed_count} record(s):\n"
+            f"✅ Rename complete:\n"
             f"   FROM: '{actual_old_name}'\n"
             f"   TO:   '{clean_new}'"
         )
-        return renamed_count
 
+        return renamed_reviews
+    
     def show_notes_summary(self) -> None:
         """Display all unique notes and the number of review records for each.
 
@@ -419,19 +495,59 @@ class ReviewLogManager:
         if self.df.empty:
             print("The review log is empty.")
             return
-
-        counts = self.df["note"].value_counts().reset_index()
-        counts.columns = ["Note", "Records"]
-
-        print(f"\n{'NOTE NAME':<85} | {'RECORDS'}")
-        print("-" * 98)
-        for _, row in counts.iterrows():
-            print(f"{row['Note']:<85} | {row['Records']}")
-        print("-" * 98)
-        print(
-            f"Total Unique Notes: {len(counts):<66} | "
-            f"Total Records: {counts['Records'].sum()}\n"
+    
+        # --- Review counts ---
+        review_counts = self.df["note"].value_counts().reset_index()
+        review_counts.columns = ["Note", "Reviews"]
+    
+        # --- Edit counts (from note_edits.csv if available) ---
+        if (
+            self.df_edits is not None
+            and not self.df_edits.empty
+            and "note" in self.df_edits.columns
+        ):
+            edit_counts = self.df_edits["note"].value_counts().reset_index()
+            edit_counts.columns = ["Note", "Edits"]
+        else:
+            edit_counts = pd.DataFrame(columns=["Note", "Edits"])
+    
+        # Merge: left join so every reviewed note appears even with 0 edits.
+        summary = review_counts.merge(edit_counts, on="Note", how="left")
+        summary["Edits"] = summary["Edits"].fillna(0).astype(int)
+    
+        # Sort by review count descending.
+        summary = summary.sort_values("Reviews", ascending=False).reset_index(drop=True)
+    
+        # --- Print table ---
+        col_note_w = 85
+        col_rev_w = 8
+        col_edit_w = 6
+    
+        header = (
+            f"{'NOTE NAME':<{col_note_w}} | "
+            f"{'REVIEWS':>{col_rev_w}} | "
+            f"{'EDITS':>{col_edit_w}}"
         )
+        separator = "-" * (col_note_w + col_rev_w + col_edit_w + 6)
+    
+        print(f"\n{header}")
+        print(separator)
+    
+        for _, row in summary.iterrows():
+            print(
+                f"{row['Note']:<{col_note_w}} | "
+                f"{row['Reviews']:>{col_rev_w}} | "
+                f"{row['Edits']:>{col_edit_w}}"
+            )
+    
+        print(separator)
+        print(
+            f"Total Unique Notes: {len(summary):<{col_note_w - 20}} | "
+            f"{'Total Reviews: ' + str(summary['Reviews'].sum()):>{col_rev_w + 12}} | "
+            f"{'Total Edits: ' + str(summary['Edits'].sum()):>{col_edit_w + 13}}"
+        )
+        print()
+
 
 
 # ======================================================================
@@ -475,12 +591,12 @@ Examples:
         nargs=2,
         metavar=("OLD_NAME", "NEW_NAME"),
         default=None,
-        help="Rename a note across all its records (old name, new name).",
+        help="Rename a note across all its records in review_log.csv AND note_edits.csv.",
     )
     parser.add_argument(
         "--summary",
         action="store_true",
-        help="Show all notes and their record counts.",
+        help="Show all notes, their review counts, and edit counts.",
     )
     parser.add_argument(
         "--dry-run",

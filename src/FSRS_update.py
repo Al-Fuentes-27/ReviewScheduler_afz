@@ -157,6 +157,40 @@ def log_note_edit(filepath_name, configuration):
     print(f"✅ Edit logged to {edits_path.name}")
 
 
+# ===== BACKUP FUNCTION =====
+
+def backup_note(filepath, configuration):
+    """
+    Generate a .txt backup of the edited note.
+    The backup contains the date and the full current contents of the note.
+    Backups are stored in the 'note_backup' folder inside outputs.
+    """
+    backup_dir = Path(configuration["backup_path"])
+
+    # Create the backup folder if it does not exist
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    # Read the current contents of the note
+    with open(filepath, 'r', encoding='utf-8') as f:
+        note_content = f.read()
+
+    front, body = parse_frontmatter(note_content)
+    
+    # Build the backup filename: <original_stem>_<YYYY-MM-DD>.txt
+    today_str = date.today().isoformat()
+    backup_filename = f"{filepath.stem}_backup.txt"
+    backup_filepath = backup_dir / backup_filename
+
+    # Write the backup txt with a header showing the date and source
+    with open(backup_filepath, 'a', encoding='utf-8') as bf:
+        bf.write(f"{'=' * 70}\n")
+        bf.write(f"Backup Date: {today_str}\n")
+        bf.write(f"Source File: {filepath.name}\n")
+        bf.write(f"{'=' * 70}\n\n")
+        bf.write(body)
+        bf.write("\n")
+
+    print(f"💾 Backup appended: {backup_filepath}")
 
 
 
@@ -371,8 +405,7 @@ e: for easy / green
         
         if edit_ans == 'y':
             log_note_edit(filepath.name, config)  # ▼▼▼ ONLY reached if grade was valid ▼▼▼
-
-
+            backup_note(filepath, config)         # ← generate .txt backup of the edited note
 
 
 
@@ -383,7 +416,21 @@ e: for easy / green
 
 
 if __name__ == "__main__":
+    import time
+    # Import the separated FSRS algorithm engine
+    import FSRS_single_note_metrics, FSRS_metrics
+    
+    
+    # The aplication that records my study sessions reviews
     main()
-
+    
+    time.sleep(0.5)
+    print("\n\nRunning second script: Single note metrics ...\n\n")
+    # Build the performance dashboard per review
+    FSRS_single_note_metrics.main()
+    time.sleep(0.5)
+    print("\n\nRunning third script: The overall review metrics ...\n\n")
+    # Build the overall performance dashoard
+    FSRS_metrics.main()
 
 
