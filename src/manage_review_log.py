@@ -16,7 +16,7 @@ Usage:
     python manage_review_log.py --delete-last "💡 gro.a. — Grouped Aggregation — Concept.md"
         - delete only the LAST review of a note (to re-grade it)
     python manage_review_log.py --rename "old note name" "new note name"
-        - rename a concept note across all its records
+        - rename a concept note across all its records (note_edits.csv and review_log.csv)
         
     python manage_review_log.py --delete "..." --dry-run
     python manage_review_log.py --config path/to/config.json --summary

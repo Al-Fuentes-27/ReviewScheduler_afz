@@ -69,6 +69,17 @@ def parse_frontmatter(content):
         return {}, content
 
 
+def notes_contents(filepath):
+    """Extract the frontmatter contents from the concept note and the concept note contents."""
+    
+    # Read the current contents of the note
+    with open(filepath, 'r', encoding='utf-8') as f:
+        note_content = f.read()
+
+    front, body = parse_frontmatter(note_content)
+    
+    return front, body
+
 
 
 
@@ -103,7 +114,7 @@ def log_review_event(filepath_name, grade, elapsed, r_label,
         ])
 
 
-def log_note_edit(filepath_name, configuration):
+def log_note_edit(filepath, configuration):
     """Prompt the user for edit details and append to note_edits.csv."""
     edits_path = Path(configuration["edits_path"])
     
@@ -113,7 +124,7 @@ def log_note_edit(filepath_name, configuration):
 
         with open(edits_path, "w", newline="", encoding="utf-8") as log:
             csv.writer(log).writerow([
-                "date", "note", "edit_type", "description"
+                "date", "note", "edit_type", "description",
             ])
             
     print(f"\n{'=' * 70}")
@@ -149,9 +160,9 @@ def log_note_edit(filepath_name, configuration):
     with open(edits_path, "a", newline="", encoding="utf-8") as log:
         csv.writer(log).writerow([
             edit_date,
-            filepath_name,
+            filepath.name,
             edit_type,
-            desc
+            desc,
         ])
 
     print(f"✅ Edit logged to {edits_path.name}")
@@ -170,11 +181,8 @@ def backup_note(filepath, configuration):
     # Create the backup folder if it does not exist
     backup_dir.mkdir(parents=True, exist_ok=True)
 
-    # Read the current contents of the note
-    with open(filepath, 'r', encoding='utf-8') as f:
-        note_content = f.read()
-
-    front, body = parse_frontmatter(note_content)
+    # get the concept note current contents
+    front, body = notes_contents(filepath)
     
     # Build the backup filename: <original_stem>_<YYYY-MM-DD>.txt
     today_str = date.today().isoformat()
@@ -197,11 +205,10 @@ def backup_note(filepath, configuration):
 
 # ===== NOTE UPDATE =====
 
-def update_note(filepath, grade, configuration, review_time):
-    with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
-
-    front, body = parse_frontmatter(content)
+def update_note(filepath, grade, configuration, review_time): 
+    # get the concept note current contents
+    front, body = notes_contents(filepath)
+    
     if not front:
         print(f"No frontmatter in {filepath}, skipping.")
         return
@@ -404,7 +411,7 @@ e: for easy / green
         edit_ans = input("\nNote edited? (Enter to skip, 'y' to log): ").strip().lower()
         
         if edit_ans == 'y':
-            log_note_edit(filepath.name, config)  # ▼▼▼ ONLY reached if grade was valid ▼▼▼
+            log_note_edit(filepath, config)       # ▼▼▼ ONLY reached if grade was valid ▼▼▼
             backup_note(filepath, config)         # ← generate .txt backup of the edited note
 
 
@@ -416,6 +423,7 @@ e: for easy / green
 
 
 if __name__ == "__main__":
+    
     import time
     # Import the separated FSRS algorithm engine
     import FSRS_single_note_metrics, FSRS_metrics
@@ -432,5 +440,6 @@ if __name__ == "__main__":
     print("\n\nRunning third script: The overall review metrics ...\n\n")
     # Build the overall performance dashoard
     FSRS_metrics.main()
+    
 
 
