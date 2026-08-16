@@ -15,7 +15,7 @@ Usage:
         - delete all review records for a given concept note
     python manage_review_log.py --delete-last "💡 gro.a. — Grouped Aggregation — Concept.md"
         - delete only the LAST review of a note (to re-grade it)
-    python manage_review_log.py --rename "old note name" "new note name"
+    python manage_review_log.py --rename "old note name.extension file" "new note name.extension file"
         - rename a concept note across all its records (note_edits.csv and review_log.csv)
         
     python manage_review_log.py --delete "..." --dry-run
@@ -74,6 +74,7 @@ class ReviewLogManager:
         self.config_path = Path(config_path)
         self.log_path: str = self._get_log_path_from_config()
         self.edits_path: str = self._get_edits_path_from_config()   # NEW
+        self.backup_path: str = self._get_backup_path_from_config()   # ← NEW LINE
         self.df: pd.DataFrame = self._load_csv(self.log_path)       # signature changed
         self.df_edits: pd.DataFrame | None = self._load_edits_csv() # NEW
 
@@ -144,6 +145,33 @@ class ReviewLogManager:
         log_dir = os.path.dirname(os.path.abspath(self.log_path))
 
         return os.path.join(log_dir, "note_edits.csv")
+    
+    def _get_backup_path_from_config(self) -> str:
+        """Read config.json and extract 'backup_path' for the note_backup folder.
+
+        Falls back to looking for a 'note_backup' directory in the same
+        directory as the review log if 'backup_path' is not explicitly configured.
+        """
+        if not self.config_path.exists():
+            raise FileNotFoundError(
+                f"Configuration file not found at: {self.config_path.resolve()}"
+            )
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            raw_config = json.load(f)
+        cleaned_config = {
+            k.strip(): v.strip() if isinstance(v, str) else v
+            for k, v in raw_config.items()
+        }
+        
+        backup_path = cleaned_config.get("backup_path")
+        
+        if backup_path:
+            return backup_path
+        
+        # Fallback: look for 'note_backup' next to the review log.
+        log_dir = os.path.dirname(os.path.abspath(self.log_path))
+
+        return os.path.join(log_dir, "note_backup")
 
     def _load_csv(self, path: str) -> pd.DataFrame:
         """Load the review log CSV into a pandas DataFrame.
@@ -186,6 +214,64 @@ class ReviewLogManager:
             print(f"  💾 Backup saved to: {backup_path}")
     
         df.to_csv(path, index=False, encoding="utf-8")
+
+    def _rename_backup_file(self, old_name: str, new_name: str,
+                            dry_run: bool = False) -> bool:
+        """Rename the backup .txt file for a note inside the backup folder.
+
+        Backup naming convention:
+            note  "💡 s.m.a — ... — Concept.md"
+            →     "💡 s.m.a — ... — Concept_backup.txt"
+
+        Returns True if a backup file was found and renamed (or would be),
+        False otherwise.
+        """
+        if not os.path.isdir(self.backup_path):
+            print(f"  ⚠️  Backup folder not found: {self.backup_path}")
+            return False
+
+        # Derive backup filenames: strip note extension, append "_backup.txt"
+        old_stem = os.path.splitext(old_name)[0]
+        new_stem = os.path.splitext(new_name)[0]
+        old_backup_file = f"{old_stem}_backup.txt"
+        new_backup_file = f"{new_stem}_backup.txt"
+
+        old_backup_full = os.path.join(self.backup_path, old_backup_file)
+        new_backup_full = os.path.join(self.backup_path, new_backup_file)
+
+        # Try exact match first
+        if not os.path.isfile(old_backup_full):
+            # Fallback: search with normalized names (dash/case-insensitive)
+            norm_target = self._normalize_text(old_stem)
+            found = None
+            for fname in os.listdir(self.backup_path):
+                if fname.endswith("_backup.txt"):
+                    candidate_stem = fname[: -len("_backup.txt")]
+                    if self._normalize_text(candidate_stem) == norm_target:
+                        found = fname
+                        break
+            if found is None:
+                print(f"  ℹ️  No backup file found for: '{old_name}'")
+                return False
+            old_backup_file = found
+            old_backup_full = os.path.join(self.backup_path, old_backup_file)
+
+        if dry_run:
+            print(f"  🔍 [DRY RUN] Would rename backup file:")
+            print(f"     FROM: {old_backup_file}")
+            print(f"     TO:   {new_backup_file}")
+            return True
+
+        # Guard against overwriting an existing target
+        if os.path.isfile(new_backup_full):
+            print(f"  ⚠️  Target backup already exists: '{new_backup_file}'. Skipping.")
+            return False
+
+        os.rename(old_backup_full, new_backup_full)
+        print(f"  ✅ Backup renamed:")
+        print(f"     FROM: {old_backup_file}")
+        print(f"     TO:   {new_backup_file}")
+        return True
 
     def _find_note_mask(self, df: pd.DataFrame, note_name: str) -> pd.Series:
         """Find all rows matching a note name using exact then normalized match.
@@ -477,6 +563,9 @@ class ReviewLogManager:
             self.df_edits.loc[mask_edits, "note"] = clean_new
             self._save_csv(self.edits_path, self.df_edits, backup=True)
             print(f"  ✅ note_edits.csv: renamed {renamed_edits} record(s).")
+    
+        # Apply rename to backup file                          # ← NEW
+        self._rename_backup_file(clean_old, clean_new, dry_run=dry_run)  # ← NEW
     
         print(
             f"✅ Rename complete:\n"
