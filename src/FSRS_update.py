@@ -288,7 +288,7 @@ def update_note(filepath, grade, configuration, review_time):
 
 def main():
     # Load the config once when the script starts
-    config_path = Path(r"..\data\config.json")
+    config_path = Path(r"..\data\path_config.json")
     config = load_config(config_path)
     
     # Get the specific file path (ensuring it's a Path object for easy manipulation)

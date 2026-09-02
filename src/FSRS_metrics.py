@@ -1325,7 +1325,7 @@ def print_section(title):
 
 def main():
     # Load the config once when the script starts
-    config_path = Path(r"..\data\config.json")
+    config_path = Path(r"..\data\path_config.json")
     config = load_config(config_path)
 
     rows = load_log(Path(config["log_path"]))

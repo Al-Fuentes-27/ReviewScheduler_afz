@@ -1139,7 +1139,7 @@ def print_note_summary(note_name: str, summary: dict, out_path: Path,
 # ===== MAIN =====
 
 def main():
-    config_path = Path(r"..\data\config.json")
+    config_path = Path(r"..\data\path_config.json")
     config      = load_config(config_path)
     config      = resolve_paths(config)
 

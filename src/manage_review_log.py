@@ -471,7 +471,7 @@ class ReviewLogManager:
 
         # Delete the single row and save.
         self.df = self.df.drop(index=last_idx)
-        self._save_csv(self.log_path, self.df, backup=True)
+        self._save_csv(self.log_path, self.df, backup=False)
         print(
             f"✅ Deleted last review for note:\n"
             f"   '{actual_note_name}' (date: {last_date}, grade: {last_grade})\n"
@@ -555,13 +555,13 @@ class ReviewLogManager:
         # Apply rename to review_log.csv
         if renamed_reviews > 0:
             self.df.loc[mask_reviews, "note"] = clean_new
-            self._save_csv(self.log_path, self.df, backup=True)
+            self._save_csv(self.log_path, self.df, backup=False)
             print(f"  ✅ review_log.csv: renamed {renamed_reviews} record(s).")
     
         # Apply rename to note_edits.csv
         if renamed_edits > 0:
             self.df_edits.loc[mask_edits, "note"] = clean_new
-            self._save_csv(self.edits_path, self.df_edits, backup=True)
+            self._save_csv(self.edits_path, self.df_edits, backup=False)
             print(f"  ✅ note_edits.csv: renamed {renamed_edits} record(s).")
     
         # Apply rename to backup file                          # ← NEW
