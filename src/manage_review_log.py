@@ -34,12 +34,14 @@ import sys
 import shutil
 import datetime
 from pathlib import Path
+import re
+import yaml
 
 
 
 # Resolve paths relative to THIS script's location, not the working directory.
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CONFIG_PATH = SCRIPT_DIR / ".." / "data" / "config.json"
+DEFAULT_CONFIG_PATH = SCRIPT_DIR / ".." / "data" / "path_config.json"
 
 
 
@@ -65,39 +67,34 @@ class ReviewLogManager:
 
         Args:
             config_path: Path to the JSON configuration file.
-                         Defaults to '../data/config.json' relative to this script.
+                         Defaults to '../data/path_config.json' relative to this script.
 
         Raises:
             FileNotFoundError: If the config file or the CSV file does not exist.
             KeyError:          If 'log_path' is missing from the config.
         """
         self.config_path = Path(config_path)
-        self.log_path: str = self._get_log_path_from_config()
+        
+        # Cache the cleaned configuration dictionary
+        self.cleaned_config = self._load_and_clean_config()
+        
+        # Extract log_path directly from the cached config
+        self.log_path = self.cleaned_config.get("log_path")
+        if not self.log_path:
+            raise KeyError("'log_path' not found in the configuration file.")
+            
         self.edits_path: str = self._get_edits_path_from_config()   # NEW
         self.backup_path: str = self._get_backup_path_from_config()   # ← NEW LINE
         self.df: pd.DataFrame = self._load_csv(self.log_path)       # signature changed
         self.df_edits: pd.DataFrame | None = self._load_edits_csv() # NEW
 
 
-
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _get_log_path_from_config(self) -> str:
-        """Read config.json and extract 'log_path', stripping trailing spaces.
-
-        The config file is known to contain trailing whitespace in keys and
-        values (e.g. "log_path ":  "..\\outputs\\review_log.csv "), so we
-        strip all string keys and values before lookup.
-
-        Returns:
-            The cleaned log_path string from the configuration.
-
-        Raises:
-            FileNotFoundError: If the config file does not exist.
-            KeyError:          If 'log_path' is not present after cleaning.
-        """
+    def _load_and_clean_config(self) -> dict:
+        """Load config.json once and strip whitespace from keys/values."""
         if not self.config_path.exists():
             raise FileNotFoundError(
                 f"Configuration file not found at: {self.config_path.resolve()}"
@@ -106,73 +103,147 @@ class ReviewLogManager:
         with open(self.config_path, "r", encoding="utf-8") as f:
             raw_config = json.load(f)
 
-        # Strip trailing/leading whitespace from all keys and string values.
-        cleaned_config = {
+        return {
             k.strip(): v.strip() if isinstance(v, str) else v
             for k, v in raw_config.items()
         }
-
-        log_path = cleaned_config.get("log_path")
-        if not log_path:
-            raise KeyError("'log_path' not found in the configuration file.")
-
-        return log_path
 
     def _get_edits_path_from_config(self) -> str:
-        """Read config.json and extract 'edits_path' for note_edits.csv.
-    
-        Falls back to looking for 'note_edits.csv' in the same directory
-        as the review log if 'edits_path' is not explicitly configured.
-        """
-        if not self.config_path.exists():
-            raise FileNotFoundError(
-                f"Configuration file not found at: {self.config_path.resolve()}"
-            )
-    
-        with open(self.config_path, "r", encoding="utf-8") as f:
-            raw_config = json.load(f)
-    
-        cleaned_config = {
-            k.strip(): v.strip() if isinstance(v, str) else v
-            for k, v in raw_config.items()
-        }
-    
-        edits_path = cleaned_config.get("edits_path")
+        """Read config and extract 'edits_path', with fallback."""
+        edits_path = self.cleaned_config.get("edits_path")
         if edits_path:
             return edits_path
     
         # Fallback: look for note_edits.csv in the same directory as review_log.
         log_dir = os.path.dirname(os.path.abspath(self.log_path))
-
         return os.path.join(log_dir, "note_edits.csv")
     
     def _get_backup_path_from_config(self) -> str:
-        """Read config.json and extract 'backup_path' for the note_backup folder.
-
-        Falls back to looking for a 'note_backup' directory in the same
-        directory as the review log if 'backup_path' is not explicitly configured.
-        """
-        if not self.config_path.exists():
-            raise FileNotFoundError(
-                f"Configuration file not found at: {self.config_path.resolve()}"
-            )
-        with open(self.config_path, "r", encoding="utf-8") as f:
-            raw_config = json.load(f)
-        cleaned_config = {
-            k.strip(): v.strip() if isinstance(v, str) else v
-            for k, v in raw_config.items()
-        }
-        
-        backup_path = cleaned_config.get("backup_path")
-        
+        """Read config and extract 'backup_path', with fallback."""
+        backup_path = self.cleaned_config.get("backup_path")
         if backup_path:
             return backup_path
         
         # Fallback: look for 'note_backup' next to the review log.
         log_dir = os.path.dirname(os.path.abspath(self.log_path))
-
         return os.path.join(log_dir, "note_backup")
 
+    def _get_vault_path_from_config(self) -> str:
+        """Read config and extract 'obsidian_vault_path'."""
+        vault_path = self.cleaned_config.get("obsidian_vault_path")
+        if not vault_path:
+            raise KeyError("'obsidian_vault_path' not found in the configuration file.")
+        return vault_path
+
+    def _get_notes_ext_from_config(self) -> str:
+        """Read config and extract 'notes_extension'."""
+        notes_ext = self.cleaned_config.get("notes_extension")
+        if not notes_ext:
+            raise KeyError("'notes_extension' not found in the configuration file.")
+        return notes_ext
+    
+    def _find_note_file(self, note_name: str) -> Path | None:
+        """Locate the physical markdown file in the Obsidian vault by its filename.
+
+        Args:
+            note_name: The exact filename of the note (e.g., "Concept.md").
+
+        Returns:
+            A Path object to the file if found, otherwise None.
+        """
+        try:
+            vault_path = Path(self._get_vault_path_from_config())
+        except (FileNotFoundError, KeyError):
+            return None
+
+        if not vault_path.exists():
+            return None
+
+        # Search the vault recursively for the exact filename
+        for md_file in vault_path.rglob(note_name):
+            if md_file.is_file():
+                return md_file
+                
+        return None
+
+    def _read_frontmatter(self, file_path: Path) -> tuple[dict, str]:
+        """Extract YAML frontmatter and the rest of the markdown body.
+
+        Args:
+            file_path: The Path object to the .md file.
+
+        Returns:
+            A tuple containing the parsed frontmatter dictionary and the note body string.
+        """
+        content = file_path.read_text(encoding="utf-8")
+        frontmatch = re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)', content, re.DOTALL)
+        
+        if not frontmatch:
+            return {}, content
+            
+        yaml_text, body = frontmatch.group(1), frontmatch.group(2)
+        try:
+            front = yaml.safe_load(yaml_text) or {}
+        except yaml.YAMLError:
+            front = {}
+            
+        return front, body
+
+    def _write_frontmatter(self, file_path: Path, front: dict, body: str) -> None:
+        """Write the updated YAML frontmatter and body back to the markdown file.
+
+        Args:
+            file_path: The Path object to the .md file.
+            front: The dictionary of frontmatter data.
+            body: The string content of the note body.
+        """
+        yaml_str = yaml.dump(front, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        new_content = f"---\n{yaml_str}---\n{body}"
+        file_path.write_text(new_content, encoding="utf-8")
+
+    def _update_note_frontmatter(self, note_name: str, new_metrics: dict | None, dry_run: bool = False) -> None:
+        """Safely update the frontmatter of a note with error handling.
+
+        Args:
+            note_name: The filename of the note.
+            new_metrics: A dictionary of metrics to update, or None to purge all FSRS metrics.
+            dry_run: If True, only print what would be changed without modifying the file.
+        """
+        file_path = self._find_note_file(note_name)
+        
+        if not file_path:
+            print(f"  ⚠️  Physical file '{note_name}' not found in vault. Skipping frontmatter update.")
+            return
+
+        try:
+            front, body = self._read_frontmatter(file_path)
+        except Exception as e:
+            print(f"  ⚠️  Error reading frontmatter for '{note_name}': {e}. Skipping update.")
+            return
+
+        if not front:
+            print(f"  ⚠️  Empty or malformed frontmatter in '{note_name}'. Skipping update.")
+            return
+
+        if new_metrics is None:
+            action_msg = f"Reset '{note_name}' to 'new' state in frontmatter (purging metrics)."
+            if not dry_run:
+                for key in ['stability', 'difficulty', 'last_reviewed', 'next_review']:
+                    front.pop(key, None)
+        else:
+            action_msg = f"Reverted frontmatter for '{note_name}'."
+            if not dry_run:
+                front.update(new_metrics)
+
+        if dry_run:
+            print(f"  🔍 [DRY RUN] Would {action_msg[0].lower() + action_msg[1:]}")
+        else:
+            print(f"  ♻️  {action_msg}")
+            try:
+                self._write_frontmatter(file_path, front, body)
+            except Exception as e:
+                print(f"  ❌  Error writing frontmatter to '{note_name}': {e}")
+     
     def _load_csv(self, path: str) -> pd.DataFrame:
         """Load the review log CSV into a pandas DataFrame.
 
@@ -180,11 +251,11 @@ class ReviewLogManager:
             A DataFrame with all rows from the CSV.
 
         Raises:
-            FileNotFoundError: If the CSV file does not exist at self.log_path.
+            FileNotFoundError: If the CSV file does not exist at the provided path.
         """
         if not os.path.exists(path):
             raise FileNotFoundError(
-                f"Review log file not found at: {self.log_path}"
+                f"Review log file not found at: {path}"
             )
 
         return pd.read_csv(path, encoding="utf-8")
@@ -273,13 +344,15 @@ class ReviewLogManager:
         print(f"     TO:   {new_backup_file}")
         return True
 
-    def _find_note_mask(self, df: pd.DataFrame, note_name: str) -> pd.Series:
+    def _find_note_mask(self, df: pd.DataFrame, note_name: str, silent: bool = False) -> pd.Series:
         """Find all rows matching a note name using exact then normalized match.
 
         This is a shared helper used by delete, delete-last, and rename.
 
         Args:
             note_name: The (already mojibake-fixed) note string to search for.
+            silent:    If True, suppress the print message when smart-normalization
+                       is triggered (useful for secondary lookups like in rename_note).
 
         Returns:
             A boolean Series (mask) where True = row matches the note.
@@ -287,7 +360,6 @@ class ReviewLogManager:
         Raises:
             ValueError: If the DataFrame has no 'note' column.
         """
-
 
         if "note" not in df.columns:
             raise ValueError("The 'note' column does not exist in the CSV file.")
@@ -297,7 +369,7 @@ class ReviewLogManager:
         if mask.sum() == 0:
             norm_target = self._normalize_text(note_name)
             mask = df["note"].apply(self._normalize_text) == norm_target
-            if mask.sum() > 0:
+            if mask.sum() > 0 and not silent:
                 print(
                     "  ℹ️  Exact match failed; matched via smart-normalization "
                     "(ignored dash/space/case differences)."
@@ -394,6 +466,7 @@ class ReviewLogManager:
         if dry_run:
             print(f"🔍 [DRY RUN] Would delete {deleted_count} record(s) for note:")
             print(f"   '{actual_note_name}'")
+            print("   📄 [DRY RUN] Would reset markdown frontmatter to 'new' state (purge all FSRS metrics).")
             print("   (No changes were saved.)")
             return deleted_count
 
@@ -408,6 +481,12 @@ class ReviewLogManager:
         self.df = self.df[~mask]
         self._save_csv(self.log_path, self.df, backup=True)
         print(f"✅ Deleted {deleted_count} record(s) for note:\n   '{actual_note_name}'")
+
+        # --- Revert Frontmatter ---
+        # Pass None to purge all FSRS metrics and reset the note to a "new" state
+        self._update_note_frontmatter(actual_note_name, None, dry_run=dry_run)
+        # --------------------------
+
         return deleted_count
 
     def delete_last_review(self, note_name: str, dry_run: bool = False) -> int:
@@ -453,6 +532,18 @@ class ReviewLogManager:
             print(f"   Date:  {last_date}")
             print(f"   Grade: {last_grade}")
             print(f"   (Row {last_idx + 2} in CSV, including header)")
+            
+            # --- Simulate Frontmatter Revert ---
+            remaining_reviews = self.df[self.df['note'] == actual_note_name].drop(index=last_idx)
+            if remaining_reviews.empty:
+                print("   📄 [DRY RUN] Would reset markdown frontmatter to 'new' state (purge metrics).")
+            else:
+                new_last_row = remaining_reviews.iloc[-1]
+                print(f"   📄 [DRY RUN] Would revert markdown frontmatter to:")
+                print(f"      Stability: {new_last_row['new_stability']}, Difficulty: {new_last_row['new_difficulty']}")
+                print(f"      Next Review: {datetime.date.today().isoformat()} (forced due today)")
+            # -------------------------------------
+            
             print("   (No changes were saved.)")
             return 1
 
@@ -477,6 +568,24 @@ class ReviewLogManager:
             f"   '{actual_note_name}' (date: {last_date}, grade: {last_grade})\n"
             f"   You can now re-grade this note."
         )
+
+        # --- Revert Frontmatter ---
+        remaining_reviews = self.df[self.df['note'] == actual_note_name]
+        if remaining_reviews.empty:
+            # No more reviews left, reset to new state
+            new_metrics = None
+        else:
+            # Revert to the new last row's state
+            new_last_row = remaining_reviews.iloc[-1]
+            new_metrics = {
+                'stability': float(new_last_row['new_stability']),
+                'difficulty': float(new_last_row['new_difficulty']),
+                'last_reviewed': str(new_last_row['date']),
+                'next_review': datetime.date.today().isoformat()  # Force it to be due today for re-grading
+            }
+        
+        self._update_note_frontmatter(actual_note_name, new_metrics, dry_run=dry_run)
+        # --------------------------
 
         return 1
 
@@ -510,12 +619,13 @@ class ReviewLogManager:
         # --- review_log.csv ---
         mask_reviews = self._find_note_mask(self.df, clean_old)
         renamed_reviews = int(mask_reviews.sum())
-    
+        
         # --- note_edits.csv ---
         mask_edits = pd.Series(dtype=bool)
         renamed_edits = 0
         if self.df_edits is not None and not self.df_edits.empty:
-            mask_edits = self._find_note_mask(self.df_edits, clean_old)
+            # Pass silent=True to prevent duplicate normalization messages
+            mask_edits = self._find_note_mask(self.df_edits, clean_old, silent=True)
             renamed_edits = int(mask_edits.sum())
     
         total_matches = renamed_reviews + renamed_edits
@@ -566,6 +676,41 @@ class ReviewLogManager:
     
         # Apply rename to backup file                          # ← NEW
         self._rename_backup_file(clean_old, clean_new, dry_run=dry_run)  # ← NEW
+    
+        # --- Rename physical .md file and update topic ---
+        old_file_path = self._find_note_file(clean_old)
+        if old_file_path:
+            new_file_path = old_file_path.parent / clean_new
+            
+            if dry_run:
+                print(f"  🔍 [DRY RUN] Would rename physical file:")
+                print(f"     FROM: {old_file_path.name}")
+                print(f"     TO:   {new_file_path.name}")
+                print(f"  🔍 [DRY RUN] Would update 'topic' in frontmatter to: '{Path(clean_new).stem}'")
+            else:
+                if new_file_path.exists():
+                    print(f"  ⚠️  Target file '{clean_new}' already exists. Skipping physical rename.")
+                else:
+                    try:
+                        old_file_path.rename(new_file_path)
+                        print(f"  ✅ Physical file renamed:")
+                        print(f"     FROM: {old_file_path.name}")
+                        print(f"     TO:   {new_file_path.name}")
+                        
+                        # Update topic in frontmatter
+                        front, body = self._read_frontmatter(new_file_path)
+                        if front and 'topic' in front:
+                            old_topic = front['topic']
+                            # Update topic to the new filename stem (without extension)
+                            front['topic'] = Path(clean_new).stem
+                            self._write_frontmatter(new_file_path, front, body)
+                            print(f"  ✅ Frontmatter 'topic' updated: '{old_topic}' -> '{front['topic']}'")
+                    except Exception as e:
+                        print(f"  ❌ Error renaming physical file: {e}")
+        else:
+            if not dry_run:
+                print(f"  ⚠️  Physical file '{clean_old}' not found in vault. Skipping physical rename.")
+        # -------------------------------------------------
     
         print(
             f"✅ Rename complete:\n"
