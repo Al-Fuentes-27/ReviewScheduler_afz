@@ -2,9 +2,9 @@
 
 # 🧠 FSRS-Inspired Obsidian Review Scheduler & Analytics Suite
 
-<!--[![📊 VIEW LOCAL DASHBOARD](https://img.shields.io/badge/📊_OPEN_DASHBOARD-Review_Metrics-1D9E75?style=for-the-badge&logo=obsidian&logoColor=white)](./outputs/review_metrics.html)-->
+[![📊 VIEW LOCAL DASHBOARD](https://img.shields.io/badge/📊_OPEN_DASHBOARD-Review_Metrics-1D9E75?style=for-the-badge&logo=obsidian&logoColor=white)](./dashboard example/review_metrics.html)
 
-<!--*Click the button above to explore the global analytics dashboard (Dark/Light mode, dynamic charts, and study insights).*-->
+*Click the button above to explore the global analytics dashboard (Dark/Light mode, dynamic charts, and study insights).*
 
 </div>
 
@@ -16,7 +16,7 @@
 
 An advanced, locally-hosted Spaced Repetition System (SRS) engine and analytics suite designed specifically for **Obsidian** knowledge vaults. Inspired by the **FSRS (Free Spaced Repetition Scheduler)** algorithm, this project moves beyond legacy SM-2 scheduling to dynamically model memory *Stability* and *Difficulty*, translating raw review logs into actionable study insights and identifying "leaky" concept notes before they cause exam failure.
 
-<!--> 📊 **[View the Global Dashboard](./outputs/review_metrics.html)** | 🔍 **[View Single-Note Reports](./outputs/note_reports/)**-->
+> 📊 **[View the Global Dashboard](./dashboard example/review_metrics.html)** | 🔍 **[View Single-Note Reports](./dashboard example/r.w.a.,_t.s._&_s._rolling_window_aggregation_in_time_series_&_statistics_concept.html)**
 
 ---
 
