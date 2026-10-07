@@ -2,7 +2,7 @@
 
 # 🧠 FSRS-Inspired Obsidian Review Scheduler & Analytics Suite
 
-[![📊 VIEW LOCAL DASHBOARD](https://img.shields.io/badge/📊_OPEN_DASHBOARD-Review_Metrics-1D9E75?style=for-the-badge&logo=obsidian&logoColor=white)](https://htmlpreview.github.io/?https://github.com/Al-Fuentes-27/ReviewScheduler_afz/blob/main/dashboard_example/review_metrics.html)
+[![📊 VIEW LOCAL DASHBOARD](https://img.shields.io/badge/📊_OPEN_DASHBOARD-Review_Metrics-1D9E75?style=for-the-badge&logo=obsidian&logoColor=white)](https://htmlpreview.github.io/?https://rawcdn.githack.com/Al-Fuentes-27/ReviewScheduler_afz/main/dashboard_example/review_metrics.html)
 
 *Click the button above to explore the global analytics dashboard (dynamic charts, and study insights).*
 
@@ -16,7 +16,7 @@
 
 An advanced, locally-hosted Spaced Repetition System (SRS) engine and analytics suite designed specifically for **Obsidian** knowledge vaults. Inspired by the **FSRS (Free Spaced Repetition Scheduler)** algorithm, this project moves beyond legacy SM-2 scheduling to dynamically model memory *Stability* and *Difficulty*, translating raw review logs into actionable study insights and identifying "leaky" concept notes before they cause exam failure.
 
-> 📊 **[View the Global Dashboard](https://htmlpreview.github.io/?https://github.com/Al-Fuentes-27/ReviewScheduler_afz/blob/main/dashboard_example/review_metrics.html)** | 🔍 **[View Single-Note Reports](https://htmlpreview.github.io/?https://github.com/Al-Fuentes-27/ReviewScheduler_afz/blob/main/dashboard_example/r.w.a.%2C_t.s._%26_s._rolling_window_aggregation_in_time_series_%26_statistics_concept.html)**
+> 📊 **[View the Global Dashboard](https://htmlpreview.github.io/?https://rawcdn.githack.com/Al-Fuentes-27/ReviewScheduler_afz/blob/main/dashboard_example/review_metrics.html)** | 🔍 **[View Single-Note Reports](https://htmlpreview.github.io/?https://rawcdn.githack.com/Al-Fuentes-27/ReviewScheduler_afz/blob/main/dashboard_example/r.w.a.%2C_t.s._%26_s._rolling_window_aggregation_in_time_series_%26_statistics_concept.html)**
 
 ---
 
