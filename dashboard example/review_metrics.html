@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FSRS Full Review Metrics Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root {
+  --bg:       #f8f8f6;
+  --surface:  #ffffff;
+  --surface2: #f1f0eb;
+  --text:     #1a1a18;
+  --muted:    #6b6b67;
+  --border:   rgba(0,0,0,0.1);
+  --green:    #1D9E75;
+  --blue:     #378ADD;
+  --amber:    #EF9F27;
+  --red:      #E24B4A;
+  --purple:   #7F77DD;
+  --cyan:     #2AA1B5;
+  --radius:   10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:      #1a1a18;
+    --surface: #242422;
+    --surface2:#2e2e2c;
+    --text:    #f0efe8;
+    --muted:   #9a9a94;
+    --border:  rgba(255,255,255,0.1);
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 2rem;
+  line-height: 1.5;
+}
+h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
+.subtitle { font-size: 13px; color: var(--muted); margin-bottom: 1.5rem; }
+h2 {
+  font-size: 15px; font-weight: 500;
+  margin: 2rem 0 0.75rem;
+  padding-bottom: 6px;
+  border-bottom: 0.5px solid var(--border);
+}
+.section-desc { font-size: 12px; color: var(--muted); margin-bottom: 1rem; max-width: 720px; }
+.tab-bar {
+  display: flex; gap: 4px;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.tab-btn {
+  padding: 8px 18px; font-size: 13px; font-weight: 500;
+  border: none; background: none; color: var(--muted);
+  cursor: pointer; border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--text); border-bottom-color: var(--blue); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.stat-grid-primary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0,1fr)) 140px;
+  gap: 12px; margin-bottom: 12px; align-items: stretch;
+}
+.stat-grid-secondary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0,1fr));
+  gap: 12px; margin-bottom: 2rem;
+}
+.stat-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem; position: relative; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.stat-card::after {
+  content: ''; position: absolute;
+  top: 0; left: 0; right: 0; height: 3px;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.stat-card.accent-time::after      { background: var(--cyan); }
+.stat-card.accent-avg::after       { background: var(--blue); }
+.stat-card.accent-edits::after     { background: var(--purple); }
+.stat-card.accent-month::after     { background: var(--amber); }
+.stat-card.accent-saved::after     { background: var(--green); }
+.stat-card.accent-grade::after     { background: linear-gradient(90deg, var(--red), var(--amber), var(--green), var(--blue)); }
+.stat-card.accent-total::after     { background: var(--muted); }
+.stat-card.accent-retention::after { background: var(--green); }
+.stat-card.accent-stability::after { background: var(--blue); }
+.stat-card.accent-notes::after     { background: var(--purple); }
+.stat-card.accent-lapses::after    { background: var(--red); }
+.stat-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; font-weight: 500; }
+.stat-value { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.stat-value.positive { color: var(--green); }
+.stat-value.negative { color: var(--red); }
+.stat-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.stat-delta {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 500;
+  padding: 1px 6px; border-radius: 4px; margin-top: 4px;
+}
+.stat-delta.up   { background: rgba(29,158,117,0.1); color: var(--green); }
+.stat-delta.down { background: rgba(226,75,74,0.1);  color: var(--red); }
+.stat-delta.flat { background: var(--surface2);      color: var(--muted); }
+.section-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted);
+  margin-bottom: 8px; margin-top: 1.5rem;
+}
+.section-label:first-of-type { margin-top: 0; }
+.grade-donut-wrap {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; min-height: 90px;
+}
+.grade-donut-canvas { width: 80px !important; height: 80px !important; }
+.grade-legend-mini {
+  display: flex; flex-wrap: wrap; gap: 4px 8px;
+  margin-top: 6px; font-size: 9px; color: var(--muted); justify-content: center;
+}
+.grade-legend-mini span { display: flex; align-items: center; gap: 3px; }
+.grade-legend-mini .dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+.chart-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; margin-bottom: 16px; }
+.chart-full { margin-bottom: 16px; }
+.chart-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem;
+}
+.chart-title { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+.chart-wrap { position: relative; width: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.target-note { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.timeline { position: relative; padding-left: 28px; margin-bottom: 1.5rem; }
+.timeline::before { content:''; position:absolute; left:8px; top:0; bottom:0; width:2px; background:var(--border); }
+.timeline-item {
+  position: relative; margin-bottom: 1.5rem;
+  background: var(--surface); border: 0.5px solid var(--border);
+  border-radius: var(--radius); padding: 1rem 1.25rem;
+}
+.timeline-item::before {
+  content:''; position:absolute; left:-24px; top:1.25rem;
+  width:10px; height:10px; border-radius:50%;
+  background:var(--red); border:2px solid var(--surface);
+}
+.timeline-date { font-size:11px; color:var(--muted); margin-bottom:4px; }
+.timeline-note { font-size:14px; font-weight:500; margin-bottom:6px; }
+.timeline-desc { font-size:13px; color:var(--muted); line-height:1.5; }
+.badge { display:inline-block; font-size:11px; font-weight:500; padding:2px 8px; border-radius:4px; }
+.badge-rewrite { background:rgba(226,75,74,0.12); color:var(--red); }
+.comparison-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; margin-bottom:1.5rem; }
+.compare-card { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius); padding:1.25rem; }
+.compare-card-title { font-size:14px; font-weight:500; margin-bottom:12px; }
+.compare-body { display:grid; grid-template-columns:1fr 40px 1fr; gap:8px; align-items:start; }
+.compare-col { background:var(--surface2); border-radius:8px; padding:12px; }
+.compare-col-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); margin-bottom:8px; }
+.compare-arrow { display:flex; align-items:center; justify-content:center; font-size:18px; color:var(--muted); padding-top:2rem; }
+.metric-row { display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:12px; }
+.metric-row .label { color:var(--muted); }
+.metric-row .value { font-weight:500; }
+.metric-row .value.positive { color:var(--green); }
+.metric-row .value.negative { color:var(--red); }
+.compare-footer { margin-top:10px; padding-top:8px; border-top:0.5px solid var(--border); font-size:11px; color:var(--muted); }
+.section-card { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius); padding:1.25rem; margin-bottom:16px; }
+.lapse-table { width:100%; border-collapse:collapse; font-size:13px; }
+.lapse-table th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); padding:8px 12px; border-bottom:1px solid var(--border); }
+.lapse-table td { padding:10px 12px; border-bottom:0.5px solid var(--border); vertical-align:middle; }
+.lapse-table tr:last-child td { border-bottom:none; }
+.edit-badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(226,75,74,0.1); color:var(--red); font-weight:500; }
+.edit-badge-none { background:var(--surface2); color:var(--muted); }
+.status-pill { font-size:11px; padding:2px 8px; border-radius:10px; font-weight:500; }
+.status-fixed { background:rgba(29,158,117,0.12); color:var(--green); }
+.status-struggling { background:rgba(226,75,74,0.12); color:var(--red); }
+.status-pending { background:rgba(239,159,39,0.12); color:var(--amber); }
+.lapse-bar-wrap { width:100%; background:var(--surface2); border-radius:4px; height:8px; overflow:hidden; }
+.lapse-bar { height:100%; border-radius:4px; background:var(--red); }
+.eff-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-bottom:1.5rem; }
+.eff-card { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius); padding:1.25rem; }
+.eff-card-title { font-size:13px; font-weight:500; margin-bottom:10px; }
+.eff-metric { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.eff-metric-label { font-size:12px; color:var(--muted); min-width:110px; }
+.eff-bar-track { flex:1; height:10px; background:var(--surface2); border-radius:5px; position:relative; }
+.eff-bar-fill { height:100%; border-radius:5px; position:absolute; left:50%; }
+.eff-bar-fill.positive { background:var(--green); transform:translateX(0); }
+.eff-bar-fill.negative { background:var(--red); right:50%; left:auto; }
+.eff-bar-center { position:absolute; left:50%; top:-2px; bottom:-2px; width:1px; background:var(--muted); }
+.eff-value { font-size:12px; font-weight:500; min-width:50px; text-align:right; }
+.eff-value.positive { color:var(--green); }
+.eff-value.negative { color:var(--red); }
+.eff-value.neutral { color:var(--muted); }
+.eff-verdict { margin-top:12px; padding-top:8px; border-top:0.5px solid var(--border); font-size:12px; color:var(--muted); }
+.eff-verdict strong { color:var(--text); font-weight:500; }
+.pipeline-container { display:flex; flex-direction:column; gap:16px; margin-bottom:1.5rem; }
+.pipeline-header { display:flex; gap:0; margin-bottom:8px; }
+.pipeline-header-col { flex:1; text-align:center; font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.03em; }
+.pipeline-row { display:flex; align-items:stretch; background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+.pipeline-col { flex:1; padding:14px 16px; display:flex; flex-direction:column; justify-content:center; }
+.pipeline-col:not(:last-child) { border-right:0.5px solid var(--border); }
+.pipeline-arrow { display:flex; align-items:center; padding:0 6px; color:var(--muted); font-size:16px; flex-shrink:0; }
+.pipeline-note-name { font-weight:500; font-size:13px; margin-bottom:4px; }
+.pipeline-date { font-size:11px; color:var(--muted); }
+.pipeline-metric { font-size:11px; margin-top:2px; }
+.pipeline-metric .val { font-weight:500; }
+.pipeline-metric .val.bad { color:var(--red); }
+.pipeline-metric .val.good { color:var(--green); }
+.pipeline-metric .val.neutral { color:var(--amber); }
+.pipeline-edit-type { display:inline-block; font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; background:rgba(226,75,74,0.1); color:var(--red); margin-bottom:4px; }
+.pipeline-no-edit { font-size:11px; color:var(--muted); font-style:italic; }
+.pipeline-status { font-size:11px; font-weight:500; padding:2px 8px; border-radius:10px; display:inline-block; margin-top:4px; }
+.status-recovered { background:rgba(29,158,117,0.12); color:var(--green); }
+.status-unaddressed { background:rgba(226,75,74,0.12); color:var(--red); }
+.time-saved-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; margin-bottom:1.5rem; }
+.ts-card { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius); padding:1.25rem; }
+.ts-card-title { font-size:13px; font-weight:500; margin-bottom:12px; }
+.ts-big-number { font-size:32px; font-weight:600; margin-bottom:4px; }
+.ts-big-number.positive { color:var(--green); }
+.ts-big-number.negative { color:var(--red); }
+.ts-big-number.neutral { color:var(--muted); }
+.ts-sub { font-size:12px; color:var(--muted); margin-bottom:12px; }
+.ts-detail { display:flex; justify-content:space-between; font-size:12px; padding:4px 0; border-top:0.5px solid var(--border); }
+.ts-detail .label { color:var(--muted); }
+.ts-detail .value { font-weight:500; }
+.ts-verdict { margin-top:10px; padding:8px 12px; border-radius:6px; font-size:12px; line-height:1.4; }
+.ts-verdict.good { background:rgba(29,158,117,0.08); color:var(--green); }
+.ts-verdict.bad { background:rgba(226,75,74,0.08); color:var(--red); }
+.ts-verdict.meh { background:rgba(239,159,39,0.08); color:var(--amber); }
+.heatmap-wrapper { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius); padding:1.25rem; overflow-x:auto; margin-bottom:1.5rem; }
+.heatmap-title { font-size:13px; color:var(--muted); margin-bottom:12px; }
+.heatmap-cell { width:36px; height:28px; border-radius:3px; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:500; color:white; cursor:default; transition:transform 0.1s; }
+.heatmap-cell:hover { transform:scale(1.15); z-index:2; }
+.heatmap-cell.empty { background:var(--surface2); color:var(--muted); }
+.heatmap-label-row { display:flex; align-items:center; font-size:11px; color:var(--muted); white-space:nowrap; padding-right:8px; min-width:90px; }
+.heatmap-label-col { font-size:10px; color:var(--muted); text-align:center; writing-mode:vertical-lr; transform:rotate(180deg); height:40px; display:flex; align-items:center; justify-content:center; }
+.heatmap-legend { display:flex; align-items:center; gap:4px; margin-top:12px; font-size:11px; color:var(--muted); }
+.heatmap-legend-bar { width:120px; height:10px; border-radius:5px; background:linear-gradient(to right,#1D9E75,#EF9F27,#E24B4A); }
+.divergence-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:1.5rem; }
+.alert-list { margin-top:12px; }
+.alert-item { display:flex; align-items:flex-start; gap:8px; padding:8px 12px; border-radius:6px; margin-bottom:6px; font-size:12px; line-height:1.4; }
+.alert-item.warn { background:rgba(226,75,74,0.06); border:0.5px solid rgba(226,75,74,0.15); }
+.alert-item.info { background:rgba(55,138,221,0.06); border:0.5px solid rgba(55,138,221,0.15); }
+.alert-item.ok { background:rgba(29,158,117,0.06); border:0.5px solid rgba(29,158,117,0.15); }
+.alert-icon { flex-shrink:0; font-size:14px; }
+.alert-text strong { font-weight:500; }
+.detail-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; margin-bottom:1.5rem; }
+.detail-card { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius); padding:1.25rem; }
+.detail-card-title { font-size:13px; font-weight:500; margin-bottom:12px; }
+.detail-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:0.5px solid var(--border); font-size:12px; }
+.detail-row:last-child { border-bottom:none; }
+.detail-row .label { color:var(--muted); }
+.detail-row .value { font-weight:500; }
+.detail-row .value.green { color:var(--green); }
+.detail-row .value.red { color:var(--red); }
+.detail-row .value.amber { color:var(--amber); }
+.insight-box { background:var(--surface2); border-radius:8px; padding:12px 16px; font-size:12px; color:var(--muted); margin-top:12px; line-height:1.5; }
+.insight-box strong { color:var(--text); }
+.footer-note { margin-top:2rem; padding:12px 16px; background:var(--surface2); border-radius:8px; font-size:12px; color:var(--muted); line-height:1.5; }
+.footer-note strong { color:var(--text); font-weight:500; }
+.no-data { font-size:13px; color:var(--muted); padding:2rem 0; text-align:center; }
+@media (max-width: 1100px) {
+  .stat-grid-primary { grid-template-columns: repeat(3,1fr); }
+  .chart-grid-2, .divergence-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .stat-grid-primary { grid-template-columns: repeat(2,1fr); }
+  .stat-grid-secondary { grid-template-columns: repeat(2,1fr); }
+  .pipeline-row { flex-direction:column; }
+  .pipeline-col:not(:last-child) { border-right:none; border-bottom:0.5px solid var(--border); }
+}
+</style>
+</head>
+<body>
+<h1>FSRS full review metrics dashboard</h1>
+<div class="subtitle" id="subtitle">Loading…</div>
+
+<!-- D. SUMMARY STAT CARDS -->
+<div class="section-label">Time &amp; Edit Metrics (new)</div>
+<div class="stat-grid-primary">
+  <div class="stat-card accent-time">
+    <div class="stat-label">Total review time</div>
+    <div class="stat-value" id="s-total-time">—</div>
+    <div class="stat-sub" id="s-total-time-sub"></div>
+  </div>
+  <div class="stat-card accent-avg">
+    <div class="stat-label">Avg time / card</div>
+    <div class="stat-value" id="s-avg-time">—</div>
+    <div class="stat-sub">Target: &lt; 12 min</div>
+  </div>
+  <div class="stat-card accent-edits">
+    <div class="stat-label">Notes edited</div>
+    <div class="stat-value" id="s-notes-edited">—</div>
+    <div class="stat-sub" id="s-notes-edited-sub"></div>
+  </div>
+  <div class="stat-card accent-month">
+    <div class="stat-label">Total edits</div>
+    <div class="stat-value" id="s-edit-count">—</div>
+    <div class="stat-sub" id="s-edit-count-sub"></div>
+  </div>
+  <div class="stat-card accent-saved">
+    <div class="stat-label">Time saved post-edit</div>
+    <div class="stat-value" id="s-time-saved">—</div>
+    <div class="stat-sub" id="s-time-saved-sub"></div>
+  </div>
+  <div class="stat-card accent-grade">
+    <div class="stat-label">Grade distribution</div>
+    <div class="grade-donut-wrap">
+      <canvas id="c-grade-donut" class="grade-donut-canvas"></canvas>
+      <div class="grade-legend-mini" id="grade-legend-mini"></div>
+    </div>
+  </div>
+</div>
+
+<div class="section-label">Core FSRS Metrics (existing)</div>
+<div class="stat-grid-secondary">
+  <div class="stat-card accent-total">
+    <div class="stat-label">Total reviews</div>
+    <div class="stat-value" id="s-total">—</div>
+  </div>
+  <div class="stat-card accent-retention">
+    <div class="stat-label">Retention rate</div>
+    <div class="stat-value" id="s-retention">—</div>
+  </div>
+  <div class="stat-card accent-stability">
+    <div class="stat-label">Avg stability</div>
+    <div class="stat-value" id="s-stability">—</div>
+  </div>
+  <div class="stat-card accent-notes">
+    <div class="stat-label">Notes tracked</div>
+    <div class="stat-value" id="s-notes">—</div>
+  </div>
+  <div class="stat-card accent-lapses">
+    <div class="stat-label">Total lapses</div>
+    <div class="stat-value" id="s-lapses" style="color:var(--red)">—</div>
+  </div>
+</div>
+
+<!-- TAB NAVIGATION -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('tabA')">A · Review Time</button>
+  <button class="tab-btn" onclick="switchTab('tabB')">B · Note Edits</button>
+  <button class="tab-btn" onclick="switchTab('tabC')">C · Cross-Cutting</button>
+  <button class="tab-btn" onclick="switchTab('tabD')">D · Detail Breakdown</button>
+</div>
+
+<!-- TAB A -->
+<div class="tab-panel active" id="tabA">
+  <h2>A1 · Average review time per note</h2>
+  <div class="chart-grid-2">
+    <div class="chart-card">
+      <div class="chart-title">Horizontal bar — sorted by average time (minutes)</div>
+      <div class="chart-wrap" style="height:260px"><canvas id="c-a1"></canvas></div>
+      <div class="target-note">Notes above 16 min are rewrite candidates. Below 8 min = well-structured.</div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">A2 · Review time by grade</div>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-dot" style="background:var(--red)"></span>again</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--amber)"></span>hard</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--green)"></span>good</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--blue)"></span>easy</span>
+      </div>
+      <div class="chart-wrap" style="height:230px"><canvas id="c-a2"></canvas></div>
+    </div>
+  </div>
+  <h2>A3–A4 · Trends &amp; Daily Load</h2>
+  <div class="chart-grid-2">
+    <div class="chart-card">
+      <div class="chart-title">A3 · Average review time trend (weekly)</div>
+      <div class="chart-wrap" style="height:200px"><canvas id="c-a3"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">A4 · Daily review load (stacked by note)</div>
+      <div class="chart-wrap" style="height:200px"><canvas id="c-a4"></canvas></div>
+    </div>
+  </div>
+  <h2>A5 · Efficiency ratio</h2>
+  <div class="chart-full">
+    <div class="chart-card">
+      <div class="chart-title">Time spent per stability-day gained (min / day)</div>
+      <div class="chart-wrap" style="height:240px"><canvas id="c-a5"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB B -->
+<div class="tab-panel" id="tabB">
+  <h2>B1 · Edit timeline</h2>
+  <div class="timeline" id="edit-timeline"></div>
+  <h2>B2 · Pre / Post edit performance</h2>
+  <div class="comparison-grid" id="pre-post-grid"></div>
+  <h2>B3 · Lapse report with edit status</h2>
+  <div class="section-card">
+    <table class="lapse-table">
+      <thead><tr><th>Note</th><th style="width:120px">Lapses</th><th style="width:50px"></th><th style="width:70px">Edits</th><th style="width:110px">Status</th></tr></thead>
+      <tbody id="lapse-tbody"></tbody>
+    </table>
+    <div class="insight-box"><strong>Guide:</strong> 3+ lapses &amp; 0 edits → rewrite candidate.</div>
+  </div>
+  <h2>B4 · Edit effectiveness score</h2>
+  <div class="eff-grid" id="eff-grid"></div>
+</div>
+
+<!-- TAB C -->
+<div class="tab-panel" id="tabC">
+  <h2>C1 · Lapse → Edit → Recovery pipeline</h2>
+  <div class="pipeline-header">
+    <div class="pipeline-header-col">① Lapse Event</div>
+    <div class="pipeline-header-col">② Edit Applied</div>
+    <div class="pipeline-header-col">③ Recovery Outcome</div>
+  </div>
+  <div class="pipeline-container" id="pipeline-container"></div>
+  <h2>C2 · Time saved after rewrite</h2>
+  <div class="time-saved-grid" id="time-saved-grid"></div>
+  <h2>C3 · Review time heatmap (note × week)</h2>
+  <div class="heatmap-wrapper">
+    <div class="heatmap-title">Average review time (min) per note per ISO week</div>
+    <div id="heatmap-container"></div>
+    <div class="heatmap-legend"><span>Fast</span><div class="heatmap-legend-bar"></div><span>Slow</span></div>
+  </div>
+  <h2>C4 · Difficulty vs. time divergence</h2>
+  <div class="divergence-grid">
+    <div class="chart-card">
+      <div class="chart-title">Difficulty (y) vs. Avg Review Time (x)</div>
+      <div class="chart-wrap" style="height:280px"><canvas id="c-c4"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Divergence alerts</div>
+      <div class="alert-list" id="alert-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB D -->
+<div class="tab-panel" id="tabD">
+  <div class="detail-grid" id="detail-grid"></div>
+  <div class="footer-note" id="footer-note"></div>
+</div>
+
+<script>
+// ── Injected data ────────────────────────────────────────────────────────────
+const summaryData     = {"total_reviews": 138, "retention_rate": 84.1, "avg_stability": 9.5, "unique_notes": 9, "total_lapses": 22};
+const retentionData   = [{"week": "2026-W17", "rate": 0.0, "total": 1}, {"week": "2026-W18", "rate": 60.0, "total": 5}, {"week": "2026-W19", "rate": 81.8, "total": 11}, {"week": "2026-W20", "rate": 66.7, "total": 9}, {"week": "2026-W21", "rate": 55.6, "total": 9}, {"week": "2026-W22", "rate": 91.7, "total": 12}, {"week": "2026-W23", "rate": 100.0, "total": 7}, {"week": "2026-W24", "rate": 75.0, "total": 8}, {"week": "2026-W25", "rate": 83.3, "total": 6}, {"week": "2026-W26", "rate": 100.0, "total": 9}, {"week": "2026-W27", "rate": 100.0, "total": 3}, {"week": "2026-W28", "rate": 100.0, "total": 3}, {"week": "2026-W29", "rate": 75.0, "total": 4}, {"week": "2026-W30", "rate": 100.0, "total": 5}, {"week": "2026-W31", "rate": 100.0, "total": 3}, {"week": "2026-W32", "rate": 100.0, "total": 3}, {"week": "2026-W33", "rate": 66.7, "total": 3}, {"week": "2026-W34", "rate": 100.0, "total": 3}, {"week": "2026-W35", "rate": 100.0, "total": 5}, {"week": "2026-W36", "rate": 50.0, "total": 4}, {"week": "2026-W37", "rate": 85.7, "total": 7}, {"week": "2026-W38", "rate": 83.3, "total": 6}, {"week": "2026-W39", "rate": 100.0, "total": 5}, {"week": "2026-W40", "rate": 100.0, "total": 5}, {"week": "2026-W41", "rate": 100.0, "total": 2}];
+const gradeData       = [{"grade": "again", "count": 22, "pct": 15.9}, {"grade": "hard", "count": 83, "pct": 60.1}, {"grade": "good", "count": 29, "pct": 21.0}, {"grade": "easy", "count": 4, "pct": 2.9}];
+const stabilityData   = [{"review_n": 1, "avg_stability": 1.0, "note_count": 9}, {"review_n": 2, "avg_stability": 1.5, "note_count": 9}, {"review_n": 3, "avg_stability": 2.4, "note_count": 9}, {"review_n": 4, "avg_stability": 3.6, "note_count": 9}, {"review_n": 5, "avg_stability": 4.4, "note_count": 9}, {"review_n": 6, "avg_stability": 5.5, "note_count": 9}, {"review_n": 7, "avg_stability": 7.2, "note_count": 9}, {"review_n": 8, "avg_stability": 9.5, "note_count": 9}, {"review_n": 9, "avg_stability": 14.8, "note_count": 9}, {"review_n": 10, "avg_stability": 19.1, "note_count": 8}, {"review_n": 11, "avg_stability": 19.4, "note_count": 8}, {"review_n": 12, "avg_stability": 22.1, "note_count": 8}, {"review_n": 13, "avg_stability": 13.0, "note_count": 4}, {"review_n": 14, "avg_stability": 17.4, "note_count": 4}, {"review_n": 15, "avg_stability": 22.0, "note_count": 4}, {"review_n": 16, "avg_stability": 11.1, "note_count": 3}, {"review_n": 17, "avg_stability": 10.2, "note_count": 3}, {"review_n": 18, "avg_stability": 3.7, "note_count": 2}, {"review_n": 19, "avg_stability": 5.0, "note_count": 2}, {"review_n": 20, "avg_stability": 5.2, "note_count": 2}, {"review_n": 21, "avg_stability": 6.7, "note_count": 2}, {"review_n": 22, "avg_stability": 8.5, "note_count": 2}, {"review_n": 23, "avg_stability": 8.5, "note_count": 2}, {"review_n": 24, "avg_stability": 8.4, "note_count": 2}, {"review_n": 25, "avg_stability": 4.4, "note_count": 1}];
+const lapseData       = [{"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "lapses": 6}, {"note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "lapses": 4}, {"note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "lapses": 3}, {"note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "lapses": 3}, {"note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "lapses": 2}, {"note": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "lapses": 1}, {"note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "lapses": 1}, {"note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "lapses": 1}, {"note": "n.e.___network effects___concept.md", "lapses": 1}];
+const rDistData       = [{"bucket": "0.0\u20130.2", "count": 8}, {"bucket": "0.2\u20130.4", "count": 0}, {"bucket": "0.4\u20130.6", "count": 0}, {"bucket": "0.6\u20130.8", "count": 0}, {"bucket": "0.8\u20131.0", "count": 130}];
+const difficultyData  = [{"review_n": 1, "avg_difficulty": 8.0}, {"review_n": 2, "avg_difficulty": 8.47}, {"review_n": 3, "avg_difficulty": 8.67}, {"review_n": 4, "avg_difficulty": 8.84}, {"review_n": 5, "avg_difficulty": 9.18}, {"review_n": 6, "avg_difficulty": 9.42}, {"review_n": 7, "avg_difficulty": 9.53}, {"review_n": 8, "avg_difficulty": 9.62}, {"review_n": 9, "avg_difficulty": 9.59}, {"review_n": 10, "avg_difficulty": 9.66}, {"review_n": 11, "avg_difficulty": 9.72}, {"review_n": 12, "avg_difficulty": 9.78}, {"review_n": 13, "avg_difficulty": 10.0}, {"review_n": 14, "avg_difficulty": 9.93}, {"review_n": 15, "avg_difficulty": 9.85}, {"review_n": 16, "avg_difficulty": 10.0}, {"review_n": 17, "avg_difficulty": 10.0}, {"review_n": 18, "avg_difficulty": 10.0}, {"review_n": 19, "avg_difficulty": 10.0}, {"review_n": 20, "avg_difficulty": 10.0}, {"review_n": 21, "avg_difficulty": 10.0}, {"review_n": 22, "avg_difficulty": 10.0}, {"review_n": 23, "avg_difficulty": 10.0}, {"review_n": 24, "avg_difficulty": 10.0}, {"review_n": 25, "avg_difficulty": 10.0}];
+const timeMetrics     = { total: 1394.9, avg: 13.28, count: 105, perNote: [{"note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "avg_time": 17.17, "total_time": 154.6, "count": 9}, {"note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "avg_time": 15.59, "total_time": 187.0, "count": 12}, {"note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "avg_time": 14.47, "total_time": 231.6, "count": 16}, {"note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "avg_time": 14.44, "total_time": 158.8, "count": 11}, {"note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "avg_time": 14.29, "total_time": 171.5, "count": 12}, {"note": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "avg_time": 13.68, "total_time": 68.4, "count": 5}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "avg_time": 13.39, "total_time": 334.8, "count": 25}, {"note": "n.e.___network effects___concept.md", "avg_time": 6.32, "total_time": 56.9, "count": 9}, {"note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "avg_time": 5.24, "total_time": 31.4, "count": 6}], events: [{"date": "24/05/2026", "note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "grade": "hard", "time": 23.8, "stability": 2.3592, "difficulty": 10.0}, {"date": "24/05/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "again", "time": 10.97, "stability": 1.0, "difficulty": 8.0}, {"date": "25/05/2026", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "hard", "time": 14.85, "stability": 3.5139, "difficulty": 10.0}, {"date": "25/05/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "again", "time": 13.94, "stability": 1.3149, "difficulty": 8.8}, {"date": "26/05/2026", "note": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "grade": "hard", "time": 13.08, "stability": 11.9897, "difficulty": 9.4}, {"date": "26/05/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 15.82, "stability": 2.0224, "difficulty": 9.0}, {"date": "26/05/2026", "note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "grade": "hard", "time": 14.1, "stability": 2.9898, "difficulty": 10.0}, {"date": "27/05/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 19.14, "stability": 5.0932, "difficulty": 10.0}, {"date": "28/05/2026", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "hard", "time": 20.2, "stability": 4.2806, "difficulty": 10.0}, {"date": "28/05/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 17.35, "stability": 2.95, "difficulty": 9.2}, {"date": "28/05/2026", "note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "grade": "hard", "time": 13.69, "stability": 3.6656, "difficulty": 10.0}, {"date": "30/05/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 16.85, "stability": 3.9857, "difficulty": 9.4}, {"date": "31/05/2026", "note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "grade": "hard", "time": 6.22, "stability": 10.3744, "difficulty": 9.2}, {"date": "31/05/2026", "note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "grade": "good", "time": 20.77, "stability": 5.9177, "difficulty": 10.0}, {"date": "01/06/2026", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "good", "time": 25.16, "stability": 6.8459, "difficulty": 10.0}, {"date": "01/06/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 14.68, "stability": 6.0188, "difficulty": 10.0}, {"date": "02/06/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "good", "time": 12.56, "stability": 6.8357, "difficulty": 9.4}, {"date": "05/06/2026", "note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "grade": "good", "time": 19.27, "stability": 9.1194, "difficulty": 10.0}, {"date": "06/06/2026", "note": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "grade": "good", "time": 22.62, "stability": 18.5791, "difficulty": 9.4}, {"date": "07/06/2026", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "good", "time": 20.64, "stability": 10.4145, "difficulty": 10.0}, {"date": "07/06/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 13.61, "stability": 7.0005, "difficulty": 10.0}, {"date": "08/06/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 17.53, "stability": 8.386, "difficulty": 9.6}, {"date": "08/06/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "again", "time": 19.52, "stability": 1.0, "difficulty": 8.0}, {"date": "09/06/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "again", "time": 18.55, "stability": 1.3149, "difficulty": 8.8}, {"date": "10/06/2026", "note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "grade": "good", "time": 5.12, "stability": 16.7306, "difficulty": 9.2}, {"date": "10/06/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "hard", "time": 23.25, "stability": 2.0224, "difficulty": 9.0}, {"date": "12/06/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "good", "time": 14.49, "stability": 3.9333, "difficulty": 9.0}, {"date": "14/06/2026", "note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "grade": "good", "time": 15.52, "stability": 13.5596, "difficulty": 10.0}, {"date": "14/06/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 10.49, "stability": 8.0215, "difficulty": 10.0}, {"date": "15/06/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "hard", "time": 13.68, "stability": 5.3045, "difficulty": 9.2}, {"date": "16/06/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "good", "time": 13.95, "stability": 13.1799, "difficulty": 9.6}, {"date": "17/06/2026", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "hard", "time": 14.44, "stability": 11.4447, "difficulty": 10.0}, {"date": "20/06/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "hard", "time": 18.02, "stability": 6.8533, "difficulty": 9.4}, {"date": "20/06/2026", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "again", "time": 27.59, "stability": 1.0, "difficulty": 8.0}, {"date": "21/06/2026", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "hard", "time": 17.16, "stability": 1.74, "difficulty": 8.2}, {"date": "22/06/2026", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "hard", "time": 14.27, "stability": 2.745, "difficulty": 8.4}, {"date": "22/06/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "good", "time": 15.4, "stability": 12.0878, "difficulty": 10.0}, {"date": "24/06/2026", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "hard", "time": 15.79, "stability": 4.086, "difficulty": 8.6}, {"date": "24/06/2026", "note": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "grade": "good", "time": 13.06, "stability": 27.6309, "difficulty": 9.4}, {"date": "26/06/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "good", "time": 15.43, "stability": 11.2059, "difficulty": 9.4}, {"date": "26/06/2026", "note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "grade": "easy", "time": 4.67, "stability": 34.7109, "difficulty": 8.9}, {"date": "27/06/2026", "note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "grade": "good", "time": 19.86, "stability": 19.3489, "difficulty": 10.0}, {"date": "28/06/2026", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "hard", "time": 18.76, "stability": 12.4593, "difficulty": 10.0}, {"date": "28/06/2026", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "hard", "time": 13.39, "stability": 5.7991, "difficulty": 8.8}, {"date": "29/06/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "good", "time": 13.39, "stability": 19.8324, "difficulty": 9.6}, {"date": "03/07/2026", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "hard", "time": 16.11, "stability": 7.7305, "difficulty": 9.0}, {"date": "04/07/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 12.36, "stability": 13.1095, "difficulty": 10.0}, {"date": "07/07/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "hard", "time": 11.37, "stability": 13.1562, "difficulty": 9.6}, {"date": "10/07/2026", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "hard", "time": 11.84, "stability": 9.8179, "difficulty": 9.2}, {"date": "10/07/2026", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "hard", "time": 10.51, "stability": 13.4506, "difficulty": 10.0}, {"date": "16/07/2026", "note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "grade": "easy", "time": 14.85, "stability": 36.0155, "difficulty": 9.7}, {"date": "17/07/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "again", "time": 20.48, "stability": 4.4563, "difficulty": 10.0}, {"date": "18/07/2026", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "good", "time": 14.06, "stability": 28.6052, "difficulty": 9.6}, {"date": "19/07/2026", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "hard", "time": 21.13, "stability": 11.9108, "difficulty": 9.4}, {"date": "20/07/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "good", "time": 12.23, "stability": 17.7537, "difficulty": 9.6}, {"date": "21/07/2026", "note": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "grade": "good", "time": 11.56, "stability": 35.4238, "difficulty": 9.4}, {"date": "21/07/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 16.77, "stability": 4.7637, "difficulty": 10.0}, {"date": "23/07/2026", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "good", "time": 7.91, "stability": 17.2288, "difficulty": 10.0}, {"date": "25/07/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 13.99, "stability": 5.0431, "difficulty": 10.0}, {"date": "30/07/2026", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "good", "time": 16.45, "stability": 16.5638, "difficulty": 9.4}, {"date": "30/07/2026", "note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "grade": "hard", "time": 6.53, "stability": 34.5237, "difficulty": 9.1}, {"date": "30/07/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 16.33, "stability": 5.3511, "difficulty": 10.0}, {"date": "04/08/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "good", "time": 14.94, "stability": 7.5033, "difficulty": 10.0}, {"date": "06/08/2026", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "good", "time": 8.13, "stability": 23.213, "difficulty": 9.6}, {"date": "09/08/2026", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "good", "time": 10.82, "stability": 21.5516, "difficulty": 10.0}, {"date": "11/08/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 13.2, "stability": 7.6279, "difficulty": 10.0}, {"date": "2026-08-15", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "again", "time": 20.0, "stability": 6.6719, "difficulty": 10.0}, {"date": "2026-08-16", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "hard", "time": 13.64, "stability": 16.8062, "difficulty": 9.6}, {"date": "2026-08-18", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "good", "time": 11.07, "stability": 10.3142, "difficulty": 10.0}, {"date": "2026-08-21", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 18.77, "stability": 6.8507, "difficulty": 10.0}, {"date": "2026-08-21", "note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "grade": "easy", "time": 12.71, "stability": 58.6551, "difficulty": 9.4}, {"date": "2026-08-25", "note": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "grade": "good", "time": 8.06, "stability": 44.3255, "difficulty": 9.4}, {"date": "2026-08-27", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 15.97, "stability": 7.007, "difficulty": 10.0}, {"date": "2026-08-28", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "good", "time": 13.47, "stability": 13.569, "difficulty": 10.0}, {"date": "2026-08-29", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "hard", "time": 9.62, "stability": 22.2, "difficulty": 9.8}, {"date": "2026-08-30", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "good", "time": 7.12, "stability": 26.3451, "difficulty": 10.0}, {"date": "2026-09-01", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "easy", "time": 7.43, "stability": 29.8196, "difficulty": 9.3}, {"date": "2026-09-02", "note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "grade": "hard", "time": 4.61, "stability": 33.6104, "difficulty": 9.3}, {"date": "2026-09-06", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "again", "time": 13.61, "stability": 3.129, "difficulty": 10.0}, {"date": "2026-09-06", "note": "n.e.___network effects___concept.md", "grade": "again", "time": 3.4, "stability": 1.0, "difficulty": 8.0}, {"date": "2026-09-07", "note": "n.e.___network effects___concept.md", "grade": "hard", "time": 5.02, "stability": 1.56, "difficulty": 8.2}, {"date": "2026-09-08", "note": "n.e.___network effects___concept.md", "grade": "hard", "time": 8.44, "stability": 2.2385, "difficulty": 8.4}, {"date": "2026-09-09", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 15.05, "stability": 3.4765, "difficulty": 10.0}, {"date": "2026-09-10", "note": "n.e.___network effects___concept.md", "grade": "hard", "time": 7.35, "stability": 3.0755, "difficulty": 8.6}, {"date": "2026-09-13", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 14.21, "stability": 13.1706, "difficulty": 10.0}, {"date": "2026-09-13", "note": "n.e.___network effects___concept.md", "grade": "hard", "time": 5.5, "stability": 4.0255, "difficulty": 8.8}, {"date": "2026-09-13", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "again", "time": 8.03, "stability": 2.2608, "difficulty": 10.0}, {"date": "2026-09-15", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "again", "time": 14.22, "stability": 1.8696, "difficulty": 10.0}, {"date": "2026-09-16", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 9.4, "stability": 2.1387, "difficulty": 10.0}, {"date": "2026-09-17", "note": "n.e.___network effects___concept.md", "grade": "hard", "time": 8.33, "stability": 5.0246, "difficulty": 9.0}, {"date": "2026-09-18", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 11.88, "stability": 2.4653, "difficulty": 10.0}, {"date": "2026-09-20", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 9.91, "stability": 2.7834, "difficulty": 10.0}, {"date": "2026-09-20", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "grade": "hard", "time": 7.18, "stability": 20.8185, "difficulty": 10.0}, {"date": "2026-09-22", "note": "n.e.___network effects___concept.md", "grade": "hard", "time": 7.15, "stability": 6.0013, "difficulty": 9.2}, {"date": "2026-09-22", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 11.3, "stability": 3.0895, "difficulty": 10.0}, {"date": "2026-09-25", "note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "grade": "hard", "time": 8.43, "stability": 23.6889, "difficulty": 10.0}, {"date": "2026-09-25", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 10.34, "stability": 3.4392, "difficulty": 10.0}, {"date": "2026-09-27", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "grade": "hard", "time": 11.42, "stability": 12.7438, "difficulty": 10.0}, {"date": "2026-09-28", "note": "n.e.___network effects___concept.md", "grade": "hard", "time": 5.97, "stability": 6.8869, "difficulty": 9.4}, {"date": "2026-09-28", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 10.37, "stability": 3.7679, "difficulty": 10.0}, {"date": "2026-09-30", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "grade": "good", "time": 12.23, "stability": 38.3712, "difficulty": 9.3}, {"date": "2026-10-01", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 10.52, "stability": 4.0742, "difficulty": 10.0}, {"date": "2026-10-04", "note": "n.e.___network effects___concept.md", "grade": "good", "time": 5.7, "stability": 10.0887, "difficulty": 9.4}, {"date": "2026-10-05", "note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "grade": "hard", "time": 4.28, "stability": 32.0667, "difficulty": 9.5}, {"date": "2026-10-05", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "grade": "hard", "time": 8.96, "stability": 4.414, "difficulty": 10.0}] };
+const editMetrics     = { edits: [{"date": "30/07/2026", "note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "edit_type": "major_rewrite", "description": "instead of having 4 or 5 questions, the contents and answers were merged into 2 questions, using the older style, smaller sentences in sequence answering the questions, the analogy across the entire concept note is not yet implemented. It takes far less time to review, but my hypothesis, it will be harder to recall the entire contents of the concept in all situations, unlike the analogy as the core structure of the entire contents of the concept note."}, {"date": "30/07/2026", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "edit_type": "major_rewrite", "description": "Triggering problem: During review, retention dropped on Sections 1 (Mechanism) and 2 (Scope/Shape), and their contents bled into each other \u2014 _\"most recent n items\"_ (a Section 2 claim) leaked into Section 1 retrieval. Section 3 (Input Material) improved. Diagnosis: a boundary failure, not a memory failure. Both sections lived in the same robot-arm-conveyor factory scene with overlapping vocabulary, so the brain stored them as one continuous movie rather than two distinct notes. I was recalling contents of section 2 in section 1, and vice versa.\\n\\nThe governing principle that emerged and ties every commit below together:\\n> _The shared analogy is locked in \u2014 one factory, one story. Sections are distinguished by narrative role, not by metaphor world. Shared setting vocabulary is fine; signature vocabulary must be role-unique; and a load-bearing claim lives in exactly one section._"}, {"date": "2026-08-15", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "edit_type": "complete_overhaul", "description": "refactor(f.m.a.): restructure concept note around noise-cancelling headphones analogy\n\nBREAKING CHANGE: Complete restructure of the note's question blocks,\nanalogy integration, and section format.\n\n## Summary\n\nRewrote the entire \"\ud83d\udca1 f.m.a. \u2014 family of moving averages as financial\nindicators \u2014 Concept\" note to use the Noise-Cancelling Headphones analogy\nas the central narrative spine across all sections, mirroring the\narchitectural pattern of the r.w.a. note (Robot Arm & Tool).\n\n## Structural Changes\n\n### Merged sections\n- Merged \"purpose & how\" + \"Why does it exist?\" into a single block:\n  \"Purpose & Why & Analogy\"\n- Rationale: both share the same conceptual nucleus (noise vs signal);\n  one answers the problem, the other the solution \u2014 they form a single\n  causal chain and cannot be fully retrieved independently.\n\n### Sections confirmed as independent (no merge)\n- \"Algorithm Types & Analogy\" (taxonomy \u2014 internal structural distinction)\n- \"Output & Analogy\" (application \u2014 reading the output)\n- Rationale: each tests a genuinely different cognitive operation.\n\n### Absorbed section\n- \"Mental model / analogy\" no longer exists as a standalone section.\n  The analogy is now the narrative spine woven into every section,\n  not a separate block.\n\n## New Section Structure\n\n| # | Heading | Analogy Label |\n|---|---------|---------------|\n| 1 | Purpose & Why & Analogy | **The Crowded Room & The Headphones** |\n| 2 | Algorithm Types & Analogy | **Different Noise-Cancelling Algorithms** |\n| 3 | Output & Analogy | **The Clean Signal as a Moving Reference** |\n\n## Content Changes per Section\n\n### Section 1 \u2014 Purpose & Why (~447 chars)\n- Restructured as: The Problem \u2192 The Solution \u2192 The Result\n- Added specific noise sources: news, sentiment, liquidity\n- Removed: \"Without the headphones, a trader must subjectively strain\n  to hear the music\" (not part of the three-bullet content scope)\n- Removed: rolling window scope sentence (already lives in r.w.a. note;\n  avoids retrieval overlap)\n- Technical mappings: \"noisy price series\", \"underlying trend\",\n  \"daily fluctuations\", \"moving average\", \"smooth line\", \"direction\",\n  \"shifts over time\"\n\n### Section 2 \u2014 Algorithm Types (~448 chars)\n- Kept: the dividing question, Flat (SMA) vs Adaptive (EWMA),\n  the consequence (reaction speed)\n- Removed: parenthetical examples (\"Yesterday counts the same as\n  49 days ago\", \"Yesterday matters more than last week...\")\n  \u2014 the analogy-side phrasing already carries the same mapping\n- Compressed: \"how fast each type reacts to price changes\" \u2192\n  \"reaction speed to price changes\"\n\n### Section 3 \u2014 Output (~449 chars)\n- Kept: clean signal = SMA line, reference track = moving baseline,\n  uptrend/downtrend (music above/below the hum),\n  negation (not a static volume level / not a fixed threshold),\n  dynamic recalculation\n- Removed: \"a living baseline that shifts with the data at every\n  moment\" (redundant with \"recalculating with every new second\")\n- Removed: \"rather than a fixed target\" (redundant with negation)\n- Compressed closing: \"That recalculation makes it *moving*.\"\n\n## Format Changes\n\n- Replaced separated \"What to test to recall\" / \"What to read\" blocks\n  with single \"Reconstruction Target (mature card)\" format (Phase 2)\n- Each Reconstruction Target opens with a bold analogy label\n- Technical terms mapped via backtick-quoted inline annotations\n- All section headings now include \"& Analogy\" suffix\n- Added \"Where the analogy breaks down\" boundary (3 points):\n  1. Headphones remove noise; MAs suppress it (raw data still has it)\n  2. Headphones adapt in real-time; MAs have a fixed non-adaptive window\n  3. Headphones don't produce a comparison baseline; MAs do\n\n## Removed / Deprecated\n\n- Standalone \"Mental model / analogy\" section (absorbed into spine)\n- \"Without the headphones, a trader must subjectively strain...\" phrase\n- Rolling window scope sentence (redundancy with r.w.a. note)\n- Parenthetical date-based examples in Algorithm Types\n- Redundant elaboration phrases in Output section\n- \"dynamic reference point / moving baseline\" dual label \u2192 single label\n\n## Added\n\n- Analogy boundary section (where the analogy breaks down)\n- Explicit noise sources in Section 1 (news, sentiment, liquidity)\n- \"The Crowded Room & The Headphones\" one-liner label\n- Consistent analogy-to-technical mapping format across all sections\n\n## Architectural Alignment\n\n- Mirrors r.w.a. note structure: analogy as narrative spine,\n  bold analogy labels, \"& Analogy\" headings, technical mappings\n  in backtick-quoted format\n- Follows Phase 2 (mature card) format: single Reconstruction Target\n  per question block, no separated Retrieve/Verify/Bridge\n- Eliminates retrieval overlap with r.w.a. note (rolling window scope)\n- Each question block tests exactly one cognitive operation\n\n## Review Protocol Impact\n\n- Session now has 3 question blocks (down from 5 original sections)\n- Blind reconstruction targets the analogy narrative chain:\n  crowded room \u2192 headphones/algorithm \u2192 clean signal as reference\n- Grading uses SuperMemo 0-5 scale per question block\n- Final FSRS rating = lowest score across all 3 blocks"}, {"date": "2026-08-16", "note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "edit_type": "major_rewrite", "description": "refactor(concept/sma): rewrite \"The Paradox\" section for FSRS recall clarity\n\nRewrote the Paradox bullet of the SMA Concept Note to fix three\nstructural problems that were blocking clean blind reconstruction.\n\nChanges:\n- \"due to network effects\" \u2192 \"because of a social contract\n  (more people, more power - network effects)\"\n  Reason: \"network effects\" alone was a bare label with no retrieval\n  hook. \"Social contract\" preserves the paradox framing (counter-\n  intuitive, something you agree to) and the parenthetical gives a\n  plain-language gloss of the mechanism.\n\n- \"The crowd holds the same leash\" \u2192 \"The crowd holds the leash tightly\"\n  Reason: \"the same leash\" implied one shared physical leash across\n  the entire crowd, breaking the analogy. \"Tightly\" replaces the\n  confusing shared-leash image with a physical sensation (active grip,\n  not passive observation). The parenthetical clarifies the financial\n  meaning (watches the same 200-day or 50-day SMA).\n\n- \"creating tension (Support/Resistance)\" \u2192 \"reacting collectively\n  at the same trigger (buying and selling - Support/Resistance)\"\n  Reason: \"creating tension\" was vague and passive \u2014 it named an\n  effect without naming the action. \"Reacting collectively at the\n  same trigger\" is physical (matches the leash analogy), specific\n  (they react, they don't just \"create tension\"), and mechanically\n  accurate (S/R works because everyone reacts at the same price\n  level). \"Buying and selling\" names the actual actions.\n\n- \"Using the median\" \u2192 \"Being the median walker\"\n  Reason: \"Using\" is tool language and breaks the dog-walking scene.\n  \"Being the median walker\" keeps the reader inside the analogy as a\n  character, so \"lose the dog\" lands as a physical image.\n\n- \"and miss the bounce\" \u2192 \"(miss the bounce)\"\n  Reason: Structural consistency. Every other clause follows the\n  pattern: analogy phrase (financial clarification). Parenthesizing\n  \"miss the bounce\" maintains that parallel rhythm throughout.\n\nNo changes to:\n- The heading \"The Paradox (The Social Contract)\"\n- \"We accept the yank\" (matches the violence of the outlier event)\n- \"lose the dog\" (strongest callback to the original analogy)\n- The three-sentence structure (why we accept \u2192 what the crowd does\n  \u2192 what happens if you opt out)\n\nNet effect: each clause now triggers the next during blind FSRS\nreconstruction. The causal chain is: social contract \u2192 network\neffects \u2192 crowd watches same SMA \u2192 reacts collectively \u2192 that\nreaction IS support/resistance \u2192 median ignores all of this \u2192\nyou miss the bounce."}, {"date": "2026-08-29", "note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "edit_type": "minor_tweak", "description": "\\nrefactor: eliminate retrieval overlap in Grouped Aggregation note\\n\\n\\n- Remove redundant timeline mechanics from the \"Right tool & Outcome\" section\\n- Rewrite \"When to use\" triggers to focus purely on analytical intent (\"Which group wins?\")\\n- Isolate temporal consequences exclusively to the \"Timeline\" question block\\n- Enforce strict FSRS scoping to prevent double-jeopardy grading friction during reviews\\n"}, {"date": "2026-09-06", "note": "n.e.___network effects___concept.md", "edit_type": "major_rewrite", "description": "BREAKDOWN OF THE NETWORK EFFECTS CONCEPT NOTE EVOLUTION\\n\\nHere is the breakdown of the exact structural and cognitive upgrades made from your original version to the final version, and why these changes make it a vastly superior FSRS Concept Note.\\n\\n\\n1. STRUCTURAL ATOMIZATION (SPLITTING THE BLOATED CARD)\\n- Original: Crammed the Core Mechanism, the Two Types, and the Moat into a single, massive Reconstruction Target.\\n- Final: Split into two distinct, atomic sections: Core & Moat and Types.\\n- Why it matters for FSRS: In your system, the FSRS grade is dictated by the weakest link. If you have a massive 5-bullet target and you forget just one bullet (e.g., the Indirect type), you are forced to grade the entire massive card as a 2 (Hard). By splitting them, you isolate the mental models. If you forget the \"Bazaar Bridge\" analogy, you only penalize the \"Types\" card, keeping your FSRS intervals accurate and preventing grading paralysis.\\n\\n\\n2. THE \"CONCRETE ANCHOR\" UPGRADE (KILLING ABSTRACT FRICTION)\\n- Original: Used abstract, textbook placeholders mixed with analogies: \"A product's value... internal features... network size... The Gravity Well.\"\\n- Final: Grounded the entire core mechanism in a single, vivid, real-world anchor: The English Language.\\n- Why it matters for FSRS: When you are doing a blind retrieval with your eyes closed, trying to speak abstract sentences like \"A product's value is dictated by its network size\" causes cognitive friction and leads to rote parroting. Saying \"English didn't become the global standard because of its internal grammar, but because of its massive user base\" rolls off the tongue naturally. It forces your brain to retrieve a story, not a definition.\\n\\n\\n3. ANALOGY COHESION (FIXING THE \"BAZAAR\" LEAK)\\n- Original: Used \"The Language\" for Direct effects, but abruptly switched to \"The Bazaar (Uber/Airbnb)\" for Indirect effects.\\n- Final: Adapted the Bazaar to fit the core analogy: \"The Bazaar Bridge\" (English acting as the bridge between Foreign Buyers and Local Sellers).\\n- Why it matters for FSRS: A fractured analogy forces your brain to context-switch mid-retrieval. By mapping both Direct and Indirect effects strictly to the English Language analogy, you created a single, unbroken mental model. \"Speakers attract speakers\" (Direct) and \"Buyers attract sellers via the language bridge\" (Indirect) now live in the exact same cognitive neighborhood.\\n\\n\\n4. SPOKEN-FLOW & MOAT REFINEMENT (WASTELAND VS. CONVERSATION)\\n- Original: \"Leaving the network means exiling yourself to an empty wasteland where no one else is speaking or trading.\" (A bit melodramatic and disconnected from the specific \"English\" anchor).\\n- Final: \"The cost of refusing to speak it is social: not using it means locking yourself out of the global conversation, killing your career growth.\"\\n- Why it matters for FSRS: The final phrasing is punchy, highly visual, and directly tied to the real-world consequence of the analogy. \"Locking yourself out of the global conversation\" is an immediate, intuitive translation of \"high social switching cost.\" It requires zero mental translation when you speak it aloud during a review."}, {"date": "2026-09-09", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "edit_type": "major_rewrite", "description": "refactor(moving-averages): simplify prompts and headphone analogy to fix recall friction\\n\\n- Replaced multi-part header (purpose/how/why) with a single, focused prompt (\"The Main Purpose\") to reduce cognitive load and prevent FSRS lapses.\\n- Simplified the \"Headphones\" analogy: removed complex physics (anti-noise waves) in favor of simple \"filtering\" to make mental retrieval effortless.\\n- Bridged the audio-to-visual gap by explicitly mapping the \"clean audio signal\" to the visual \"MA smooth line\".\\n- Clarified Trend ID (Uptrend/Downtrend) mapping using the new analogy terms (Music/MA vs. Hum/Price)."}, {"date": "2026-09-13", "note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "edit_type": "minor_tweak", "description": "refactor(r.w.c.): redistribute sliding mechanic and window-size label across Mechanism and Window targets\n\nMechanism & Analogy:\n- Remove \"one step at a time\" from the arm description; the sliding\n  cadence now lives in the Window section where it is mechanically\n  relevant (the grip filling one item per slide).\n- Move the conveyor-belt reference (\"series\") earlier in the sentence\n  so the spatial image lands before the grip action.\n- Relabel the gripped items from \"window size\" to \"rows\"; reserve\n  \"window size\" for the Window section where the capacity constraint\n  is the actual subject.\n- Introduce \"window position\" as the label for each slide, making the\n  discrete-step nature explicit without overloading the arm sentence.\n- Replace \"calculates the math on the gripped rows\" with\n  \"processes (calculates the math on) the gripped items\" \u2014 broader\n  verb up front, original phrasing kept as inline clarification.\n\nWindow & Analogy:\n- Prepend \"The arm slides one item at a time, but\" to anchor the\n  sliding cadence here, where it governs the warm-up logic.\n- Attach the \"window size\" label to \"the grip is full\", making the\n  capacity constraint visible exactly where it blocks the tool.\n- Simplify the ejection/admission language: \"ejects \u2026 into the bin /\n  admits the next item\" \u2192 \"drops the oldest item / catches the newest\n  one\". Removes the \"bin\" image (not load-bearing for recall) and\n  tightens the one-in-one-out rule to a single breath.\n- Add \"forward\" to \"each slide\" for explicit directionality.\n- Drop the standalone \"row\" label from this section; the sliding unit\n  is already established in the Mechanism target.\n\nNet effect: each Reconstruction Target now owns exactly one mechanical\nidea \u2014 Mechanism owns the arm+tool identity, Window owns the\nfill-and-slide cadence \u2014 with no label appearing in both targets."}, {"date": "2026-10-01", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "edit_type": "minor_tweak", "description": "Rewritted a small statement about the moving average output, now is clearer, by leaving everything simpler (plays music --> produce a clean signal), section 3 \"understanding the output\"."}, {"date": "2026-10-05", "note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "edit_type": "minor_tweak", "description": "I changed section 1, poor recall, i deleted the part talking about the music buried under the crowd noise. Now I am using a present conditional for the headphones analogy."}], prePost: [{"note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "edit_date": "30/07/2026", "pre_reviews": 3, "post_reviews": 3, "pre_avg_time": 5.34, "post_avg_time": 5.14, "time_delta": -0.2, "pre_lapses": 0, "post_lapses": 0, "pre_avg_stability": 20.6, "post_avg_stability": 33.4, "pre_avg_r": 0.903, "post_avg_r": 0.902, "pre_grades": ["hard", "good", "easy"], "post_grades": ["hard", "hard", "hard"]}, {"note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "edit_date": "30/07/2026", "pre_reviews": 3, "post_reviews": 3, "pre_avg_time": 17.08, "post_avg_time": 14.82, "time_delta": -2.26, "pre_lapses": 1, "post_lapses": 0, "pre_avg_stability": 4.8, "post_avg_stability": 6.8, "pre_avg_r": 0.909, "post_avg_r": 0.904, "pre_grades": ["again", "hard", "hard"], "post_grades": ["hard", "good", "hard"]}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "edit_date": "2026-08-15", "pre_reviews": 3, "post_reviews": 3, "pre_avg_time": 13.8, "post_avg_time": 18.25, "time_delta": 4.45, "pre_lapses": 0, "post_lapses": 1, "pre_avg_stability": 20.5, "post_avg_stability": 6.8, "pre_avg_r": 0.903, "post_avg_r": 0.908, "pre_grades": ["good", "good", "good"], "post_grades": ["again", "hard", "hard"]}, {"note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "edit_date": "2026-08-16", "pre_reviews": 3, "post_reviews": 3, "pre_avg_time": 16.47, "post_avg_time": 11.1, "time_delta": -5.37, "pre_lapses": 0, "post_lapses": 0, "pre_avg_stability": 12.8, "post_avg_stability": 28.3, "pre_avg_r": 0.908, "post_avg_r": 0.902, "pre_grades": ["hard", "hard", "good"], "post_grades": ["hard", "easy", "good"]}, {"note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "edit_date": "2026-08-29", "pre_reviews": 3, "post_reviews": 2, "pre_avg_time": 10.58, "post_avg_time": 8.4, "time_delta": -2.18, "pre_lapses": 0, "post_lapses": 0, "pre_avg_stability": 18.0, "post_avg_stability": 21.5, "pre_avg_r": 0.902, "post_avg_r": 0.901, "pre_grades": ["hard", "good", "good"], "post_grades": ["hard", "hard"]}, {"note": "n.e.___network effects___concept.md", "edit_date": "2026-09-06", "pre_reviews": 0, "post_reviews": 3, "pre_avg_time": null, "post_avg_time": 5.62, "time_delta": null, "pre_lapses": 0, "post_lapses": 1, "pre_avg_stability": null, "post_avg_stability": 1.6, "pre_avg_r": null, "post_avg_r": 0.612, "pre_grades": [], "post_grades": ["again", "hard", "hard"]}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "edit_date": "2026-09-09", "pre_reviews": 3, "post_reviews": 3, "pre_avg_time": 16.12, "post_avg_time": 12.43, "time_delta": -3.69, "pre_lapses": 1, "post_lapses": 2, "pre_avg_stability": 5.7, "post_avg_stability": 2.5, "pre_avg_r": 0.894, "post_avg_r": 0.9, "pre_grades": ["hard", "hard", "again"], "post_grades": ["hard", "again", "again"]}, {"note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "edit_date": "2026-09-13", "pre_reviews": 3, "post_reviews": 2, "pre_avg_time": 12.58, "post_avg_time": 12.82, "time_delta": 0.24, "pre_lapses": 0, "post_lapses": 0, "pre_avg_stability": 10.5, "post_avg_stability": 13.0, "pre_avg_r": 0.906, "post_avg_r": 0.889, "pre_grades": ["hard", "good", "good"], "post_grades": ["hard", "hard"]}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "edit_date": "2026-10-01", "pre_reviews": 3, "post_reviews": 2, "pre_avg_time": 10.67, "post_avg_time": 9.74, "time_delta": -0.93, "pre_lapses": 0, "post_lapses": 0, "pre_avg_stability": 3.4, "post_avg_stability": 4.2, "pre_avg_r": 0.914, "post_avg_r": 0.911, "pre_grades": ["hard", "hard", "hard"], "post_grades": ["hard", "hard"]}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "edit_date": "2026-10-05", "pre_reviews": 3, "post_reviews": 1, "pre_avg_time": 10.41, "post_avg_time": 8.96, "time_delta": -1.45, "pre_lapses": 0, "post_lapses": 0, "pre_avg_stability": 3.8, "post_avg_stability": 4.4, "pre_avg_r": 0.912, "post_avg_r": 0.902, "pre_grades": ["hard", "hard", "hard"], "post_grades": ["hard"]}], effectiveness: [{"note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "time_delta": -0.2, "lapse_delta": 0, "stability_delta": 12.8, "verdict": "effective"}, {"note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "time_delta": -2.26, "lapse_delta": -1, "stability_delta": 2.1, "verdict": "effective"}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "time_delta": 4.45, "lapse_delta": 1, "stability_delta": -13.7, "verdict": "needs_attention"}, {"note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "time_delta": -5.37, "lapse_delta": 0, "stability_delta": 15.6, "verdict": "effective"}, {"note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "time_delta": -2.18, "lapse_delta": 0, "stability_delta": 3.5, "verdict": "effective"}, {"note": "n.e.___network effects___concept.md", "time_delta": null, "lapse_delta": 1, "stability_delta": null, "verdict": "needs_attention"}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "time_delta": -3.69, "lapse_delta": 1, "stability_delta": -3.1, "verdict": "needs_attention"}, {"note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "time_delta": 0.24, "lapse_delta": 0, "stability_delta": 2.5, "verdict": "needs_attention"}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "time_delta": -0.93, "lapse_delta": 0, "stability_delta": 0.8, "verdict": "effective"}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "time_delta": -1.45, "lapse_delta": 0, "stability_delta": 0.7, "verdict": "effective"}], count: 10 };
+const heatmapData     = {"weeks": ["W21", "W22", "W23", "W24", "W25", "W26", "W27", "W28", "W29", "W30", "W31", "W32", "W33", "W34", "W35", "W36", "W37", "W38", "W39", "W40", "W41"], "notes": [{"name": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "short": "r.p., t.d.i.", "times": [11.0, 16.0, 12.6, 17.5, 13.9, null, 13.4, null, 14.1, null, null, null, 20.0, 18.8, 16.0, 13.6, 11.5, 11.4, 10.8, 10.4, 9.0]}, {"name": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "short": "r.w.a., t.s.", "times": [null, 19.1, 14.1, 10.5, null, 15.4, 12.4, null, 20.5, 15.4, 16.3, 14.9, 13.2, 11.1, 13.5, null, 14.2, null, 11.4, null, null]}, {"name": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "short": "t.d. & S.M.A", "times": [null, null, null, null, 22.4, 14.5, 16.1, 11.8, 21.1, null, 16.4, null, 13.6, null, null, 7.4, null, null, null, 12.2, null]}, {"name": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "short": "\ud83d\udca1 gro.a.", "times": [null, null, null, 19.0, 15.8, 15.4, null, 11.4, null, 12.2, null, 8.1, null, null, 9.6, null, null, 7.2, null, null, null]}, {"name": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "short": "\ud83d\udca1 e.w.a.", "times": [null, 17.5, 22.9, null, 14.4, 18.8, null, 10.5, null, 7.9, null, 10.8, null, null, 7.1, null, null, null, 8.4, null, null]}, {"name": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "short": "\ud83d\udca1 l.a.b.", "times": [23.8, 16.2, 19.3, 15.5, null, 19.9, null, null, 14.8, null, null, null, null, 12.7, null, null, null, null, null, null, null]}, {"name": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "short": "\ud83d\udca1 a", "times": [null, 13.1, 22.6, null, null, 13.1, null, null, null, 11.6, null, null, null, null, 8.1, null, null, null, null, null, null]}, {"name": "n.e.___network effects___concept.md", "short": "n.e.___netwo", "times": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 3.4, 6.6, 8.3, 7.2, 5.8, null]}, {"name": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "short": "\ud83d\udca1 glob.a.", "times": [null, 6.2, null, 5.1, null, 4.7, null, null, null, null, 6.5, null, null, null, null, 4.6, null, null, null, null, 4.3]}]};
+const divergenceData  = [{"note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "avg_time": 17.17, "difficulty": 9.4}, {"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "avg_time": 13.39, "difficulty": 10.0}, {"note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "avg_time": 14.44, "difficulty": 10.0}, {"note": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "avg_time": 13.68, "difficulty": 9.4}, {"note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "avg_time": 14.47, "difficulty": 10.0}, {"note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "avg_time": 5.24, "difficulty": 9.5}, {"note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "avg_time": 14.29, "difficulty": 10.0}, {"note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "avg_time": 15.59, "difficulty": 9.3}, {"note": "n.e.___network effects___concept.md", "avg_time": 6.32, "difficulty": 9.4}];
+const pipelineData    = [{"note": "r.p., t.d.i. & f.m.a.___raw prices, trend direction indicator & family of moving averages___concept.md", "lapse_count": 6, "lapse_date": "2026-09-15", "lapse_grade": "again", "lapse_r": "0.911", "lapse_time": "14.22", "has_edit": true, "edit_date": "2026-10-05", "edit_type": "complete_overhaul", "recovery": null, "status": "unaddressed"}, {"note": "r.w.a., t.s. & s.___rolling window aggregation in time series & statistics___concept.md", "lapse_count": 4, "lapse_date": "17/07/2026", "lapse_grade": "again", "lapse_r": "0.901", "lapse_time": "20.48", "has_edit": true, "edit_date": "2026-09-13", "edit_type": "major_rewrite", "recovery": {"date": "2026-09-27", "grade": "hard", "r": "0.894", "stability": "12.7438", "time": 11.42}, "status": "recovered"}, {"note": "\ud83d\udca1 l.a.b. \u2014 look-ahead bias in time series analysis \u2014 Concept.md", "lapse_count": 3, "lapse_date": "23/05/2026", "lapse_grade": "again", "lapse_r": "0.815", "lapse_time": "", "has_edit": false, "edit_date": null, "edit_type": null, "recovery": {"date": "2026-08-21", "grade": "easy", "r": "0.9", "stability": "58.6551", "time": 12.71}, "status": "self_recovered"}, {"note": "\ud83d\udca1 e.w.a. \u2014 expanding window aggregation \u2014 Concept.md", "lapse_count": 3, "lapse_date": "20/05/2026", "lapse_grade": "again", "lapse_r": "0.927", "lapse_time": "", "has_edit": false, "edit_date": null, "edit_type": null, "recovery": {"date": "2026-09-25", "grade": "hard", "r": "0.901", "stability": "23.6889", "time": 8.43}, "status": "self_recovered"}, {"note": "\ud83d\udca1 gro.a. \u2014 Grouped Aggregation \u2014 Concept.md", "lapse_count": 2, "lapse_date": "09/06/2026", "lapse_grade": "again", "lapse_r": "0.9", "lapse_time": "18.55", "has_edit": true, "edit_date": "2026-08-29", "edit_type": "minor_tweak", "recovery": {"date": "2026-09-20", "grade": "hard", "r": "0.901", "stability": "20.8185", "time": 7.18}, "status": "recovered"}, {"note": "\ud83d\udca1 a \u2014 Aggregation in Data Analysis (Family) \u2014 Concept.md", "lapse_count": 1, "lapse_date": "26/04/2026", "lapse_grade": "again", "lapse_r": "0.0", "lapse_time": "", "has_edit": false, "edit_date": null, "edit_type": null, "recovery": {"date": "2026-08-25", "grade": "good", "r": "0.901", "stability": "44.3255", "time": 8.06}, "status": "self_recovered"}, {"note": "\ud83d\udca1 glob.a. \u2014 Global Aggregation \u2014 Concept.md", "lapse_count": 1, "lapse_date": "06/05/2026", "lapse_grade": "again", "lapse_r": "0.0", "lapse_time": "", "has_edit": true, "edit_date": "2026-07-30", "edit_type": "major_rewrite", "recovery": {"date": "2026-10-05", "grade": "hard", "r": "0.902", "stability": "32.0667", "time": 4.28}, "status": "recovered"}, {"note": "t.d. & S.M.A.___trend direction & simple moving average___concept.md", "lapse_count": 1, "lapse_date": "20/06/2026", "lapse_grade": "again", "lapse_r": "0.0", "lapse_time": "27.59", "has_edit": true, "edit_date": "2026-08-16", "edit_type": "major_rewrite", "recovery": {"date": "2026-09-30", "grade": "good", "r": "0.903", "stability": "38.3712", "time": 12.23}, "status": "recovered"}];
+
+// ── Tab switching ────────────────────────────────────────────────────────────
+function switchTab(id) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// ── Chart.js globals ─────────────────────────────────────────────────────────
+const isDark  = matchMedia('(prefers-color-scheme: dark)').matches;
+const textClr = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
+const gridClr = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+const GREEN='#1D9E75', BLUE='#378ADD', AMBER='#EF9F27', RED='#E24B4A', PURPLE='#7F77DD', CYAN='#2AA1B5';
+const gradeColors = {again:RED, hard:AMBER, good:GREEN, easy:BLUE};
+const noteColors = {};
+const colorPalette = ['#6366f1','#f59e0b','#ef4444','#10b981','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#06b6d4'];
+const allNoteNames = [...new Set(timeMetrics.events.map(e=>e.note))];
+allNoteNames.forEach((n,i) => noteColors[n] = colorPalette[i % colorPalette.length]);
+const baseScale = {x:{ticks:{color:textClr,font:{size:11}},grid:{color:gridClr}},y:{ticks:{color:textClr,font:{size:11}},grid:{color:gridClr}}};
+const baseOpts = {responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}};
+function shortNote(n) { return n.length > 30 ? n.substring(0,28)+'…' : n; }
+
+// ── Stat cards ───────────────────────────────────────────────────────────────
+document.getElementById('subtitle').textContent =
+  timeMetrics.count + ' timed reviews · ' + summaryData.total_reviews + ' total reviews · ' +
+  editMetrics.count + ' edits · ' + summaryData.unique_notes + ' notes';
+const totalHrs = (timeMetrics.total / 60).toFixed(1);
+document.getElementById('s-total-time').innerHTML = totalHrs + '<span style="font-size:14px;font-weight:400;color:var(--muted)"> hrs</span>';
+document.getElementById('s-total-time-sub').textContent = timeMetrics.total + ' min cumulative · ' + timeMetrics.count + ' timed events';
+document.getElementById('s-avg-time').innerHTML = timeMetrics.avg.toFixed(1) + '<span style="font-size:14px;font-weight:400;color:var(--muted)"> min</span>';
+document.getElementById('s-notes-edited').innerHTML = new Set(editMetrics.edits.map(e=>e.note)).size + '<span style="font-size:14px;font-weight:400;color:var(--muted)"> / ' + summaryData.unique_notes + '</span>';
+document.getElementById('s-notes-edited-sub').textContent = Math.round(new Set(editMetrics.edits.map(e=>e.note)).size / summaryData.unique_notes * 100) + '% of corpus restructured';
+document.getElementById('s-edit-count').textContent = editMetrics.count;
+document.getElementById('s-edit-count-sub').textContent = editMetrics.edits.length ? 'Last: ' + editMetrics.edits[editMetrics.edits.length-1].date : 'none yet';
+const timeDeltas = editMetrics.prePost.filter(p=>p.time_delta!==null).map(p=>p.time_delta);
+const netDelta = timeDeltas.length ? (timeDeltas.reduce((a,b)=>a+b,0)/timeDeltas.length).toFixed(1) : '—';
+const savedEl = document.getElementById('s-time-saved');
+savedEl.innerHTML = (netDelta <= 0 ? '' : '+') + netDelta + '<span style="font-size:14px;font-weight:400;color:var(--muted)"> min</span>';
+savedEl.className = 'stat-value ' + (netDelta <= 0 ? 'positive' : 'negative');
+document.getElementById('s-time-saved-sub').textContent = 'net avg across edits';
+document.getElementById('s-total').textContent = summaryData.total_reviews;
+document.getElementById('s-stability').textContent = summaryData.avg_stability + 'd';
+document.getElementById('s-notes').textContent = summaryData.unique_notes;
+document.getElementById('s-lapses').textContent = summaryData.total_lapses;
+const retEl = document.getElementById('s-retention');
+retEl.textContent = summaryData.retention_rate + '%';
+retEl.style.color = summaryData.retention_rate >= 88 ? 'var(--green)' : 'var(--red)';
+
+// ── Grade donut ──────────────────────────────────────────────────────────────
+const legendMini = document.getElementById('grade-legend-mini');
+gradeData.forEach(g => {
+  legendMini.innerHTML += '<span><span class="dot" style="background:'+gradeColors[g.grade]+'"></span>'+g.pct+'%</span>';
+});
+new Chart(document.getElementById('c-grade-donut'), {
+  type:'doughnut',
+  data:{ labels:gradeData.map(g=>g.grade), datasets:[{ data:gradeData.map(g=>g.count), backgroundColor:gradeData.map(g=>gradeColors[g.grade]), borderWidth:0, hoverOffset:4 }] },
+  options:{ responsive:false, maintainAspectRatio:false, cutout:'58%', plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>ctx.label+': '+ctx.raw}} } }
+});
+
+// ── A1: Horizontal bar ───────────────────────────────────────────────────────
+const sortedPN = [...timeMetrics.perNote].sort((a,b)=>b.avg_time-a.avg_time);
+new Chart(document.getElementById('c-a1'), {
+  type:'bar',
+  data:{ labels:sortedPN.map(p=>shortNote(p.note)), datasets:[{ data:sortedPN.map(p=>p.avg_time), backgroundColor:sortedPN.map(p=>noteColors[p.note]||'#888'), borderRadius:4, barThickness:22 }] },
+  options:{...baseOpts, indexAxis:'y', scales:{x:{...baseScale.x,title:{display:true,text:'minutes',color:textClr,font:{size:11}}},y:{...baseScale.y,ticks:{color:textClr,font:{size:10}}}}, plugins:{tooltip:{callbacks:{label:ctx=>ctx.raw.toFixed(1)+' min avg'}}}}
+});
+
+// ── A2: Scatter time vs grade ────────────────────────────────────────────────
+const gradeIndex={again:0,hard:1,good:2,easy:3};
+const a2Data={again:[],hard:[],good:[],easy:[]};
+timeMetrics.events.forEach(r=>a2Data[r.grade].push({x:r.time,y:gradeIndex[r.grade]+(Math.random()-0.5)*0.3}));
+new Chart(document.getElementById('c-a2'), {
+  type:'scatter',
+  data:{datasets:Object.entries(a2Data).map(([g,pts])=>({label:g,data:pts,backgroundColor:gradeColors[g],pointRadius:5,pointHoverRadius:7}))},
+  options:{...baseOpts,scales:{x:{...baseScale.x,title:{display:true,text:'review time (min)',color:textClr,font:{size:11}},min:0},y:{...baseScale.y,min:-0.5,max:3.5,ticks:{color:textClr,font:{size:11},stepSize:1,callback:v=>['again','hard','good','easy'][v]||''},grid:{color:gridClr}}},plugins:{tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+ctx.raw.x.toFixed(1)+' min'}}}}
+});
+
+// ── A3: Weekly trend ─────────────────────────────────────────────────────────
+function isoWeek(dateObj) {
+  const d = new Date(Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return d.getUTCFullYear() + '-W' + String(weekNo).padStart(2, '0');
+}
+const weeklyTime={};
+timeMetrics.events.forEach(r=>{
+  const d=new Date(r.date.includes('-')?r.date:r.date.split('/').reverse().join('-'));
+  const w=isoWeek(d);
+  if(!weeklyTime[w])weeklyTime[w]={sum:0,cnt:0};
+  weeklyTime[w].sum+=r.time; weeklyTime[w].cnt++;
+});
+const a3Weeks=Object.keys(weeklyTime).sort();
+const a3Avgs=a3Weeks.map(w=>+(weeklyTime[w].sum/weeklyTime[w].cnt).toFixed(2));
+new Chart(document.getElementById('c-a3'), {
+  type:'line',
+  data:{labels:a3Weeks,datasets:[{label:'Avg time',data:a3Avgs,borderColor:CYAN,backgroundColor:'rgba(42,161,181,0.08)',fill:true,tension:0.35,pointRadius:4,pointBackgroundColor:CYAN}]},
+  options:{...baseOpts,
+    scales:{
+      x:{...baseScale.x,ticks:{color:textClr,font:{size:10},maxRotation:45}},
+      y:{...baseScale.y,title:{display:true,text:'minutes',color:textClr,font:{size:11}},min:0}
+    },
+    plugins:{
+      legend:{display:false},
+      tooltip:{callbacks:{label:ctx=>ctx.raw.toFixed(1)+' min avg'}}
+    }
+  }
+});
+
+// ── A4: Daily stacked ────────────────────────────────────────────────────────
+const dailyByNote={};
+timeMetrics.events.forEach(r=>{
+  const d=r.date;
+  if(!dailyByNote[d])dailyByNote[d]={};
+  if(!dailyByNote[d][r.note])dailyByNote[d][r.note]=0;
+  dailyByNote[d][r.note]+=r.time;
+});
+const a4Days=Object.keys(dailyByNote).sort();
+const a4Notes=allNoteNames;
+const a4Datasets=a4Notes.map(note=>({label:shortNote(note),data:a4Days.map(d=>(dailyByNote[d]&&dailyByNote[d][note])?+dailyByNote[d][note].toFixed(1):0),backgroundColor:noteColors[note]||'#888',borderRadius:2}));
+new Chart(document.getElementById('c-a4'), {
+  type:'bar',
+  data:{labels:a4Days,datasets:a4Datasets},
+  options:{...baseOpts,scales:{x:{stacked:true,...baseScale.x,ticks:{color:textClr,font:{size:9},maxRotation:60}},y:{stacked:true,...baseScale.y,title:{display:true,text:'minutes',color:textClr,font:{size:11}}}},plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false}}}
+});
+
+// ── A5: Efficiency scatter ───────────────────────────────────────────────────
+const a5Data={};
+timeMetrics.events.forEach(r=>{
+  if(!a5Data[r.note])a5Data[r.note]=[];
+  a5Data[r.note].push({x:r.stability,y:+(r.time/r.stability).toFixed(3)});
+});
+new Chart(document.getElementById('c-a5'), {
+  type:'scatter',
+  data:{datasets:Object.entries(a5Data).map(([note,pts])=>({label:shortNote(note),data:pts,backgroundColor:noteColors[note]||'#888',pointRadius:5,pointHoverRadius:7}))},
+  options:{...baseOpts,scales:{x:{...baseScale.x,title:{display:true,text:'new stability (days)',color:textClr,font:{size:11}},min:0},y:{...baseScale.y,title:{display:true,text:'min per stability-day',color:textClr,font:{size:11}},min:0}},plugins:{legend:{display:true,position:'bottom',labels:{color:textClr,font:{size:10},boxWidth:12,padding:10}},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+ctx.raw.y.toFixed(2)+' min/day'}}}}
+});
+
+// ── B1: Edit timeline ────────────────────────────────────────────────────────
+const timelineEl = document.getElementById('edit-timeline');
+if (editMetrics.edits.length === 0) {
+  timelineEl.innerHTML = '<div class="no-data">No edits recorded yet.</div>';
+} else {
+  editMetrics.edits.forEach(e => {
+    timelineEl.innerHTML += '<div class="timeline-item">' +
+      '<div class="timeline-date">' + e.date + '</div>' +
+      '<div class="timeline-note">' + shortNote(e.note) + ' <span class="badge badge-rewrite">' + e.edit_type + '</span></div>' +
+      '<div class="timeline-desc">' + (e.description||'').substring(0,300) + '</div></div>';
+  });
+}
+
+// ── B2: Pre/Post comparison ──────────────────────────────────────────────────
+const ppGrid = document.getElementById('pre-post-grid');
+editMetrics.prePost.forEach(pp => {
+  const timeDeltaStr = pp.time_delta !== null ? (pp.time_delta <= 0 ? '' : '+') + pp.time_delta.toFixed(1) + ' min' : '—';
+  const timeCls = pp.time_delta !== null ? (pp.time_delta <= 0 ? 'positive' : 'negative') : '';
+  ppGrid.innerHTML += '<div class="compare-card"><div class="compare-card-title">' + shortNote(pp.note) + '</div>' +
+    '<div class="compare-body"><div class="compare-col"><div class="compare-col-label">Before (' + pp.pre_reviews + ' reviews)</div>' +
+    '<div class="metric-row"><span class="label">Avg time</span><span class="value">' + (pp.pre_avg_time||'—') + ' min</span></div>' +
+    '<div class="metric-row"><span class="label">Lapses</span><span class="value">' + pp.pre_lapses + '</span></div>' +
+    '<div class="metric-row"><span class="label">Avg stability</span><span class="value">' + (pp.pre_avg_stability||'—') + 'd</span></div></div>' +
+    '<div class="compare-arrow">→</div>' +
+    '<div class="compare-col"><div class="compare-col-label">After (' + pp.post_reviews + ' reviews)</div>' +
+    '<div class="metric-row"><span class="label">Avg time</span><span class="value ' + timeCls + '">' + (pp.post_avg_time||'—') + ' min</span></div>' +
+    '<div class="metric-row"><span class="label">Lapses</span><span class="value">' + pp.post_lapses + '</span></div>' +
+    '<div class="metric-row"><span class="label">Avg stability</span><span class="value">' + (pp.post_avg_stability||'—') + 'd</span></div></div></div>' +
+    '<div class="compare-footer">Δ time: ' + timeDeltaStr + '</div></div>';
+});
+if (!editMetrics.prePost.length) ppGrid.innerHTML = '<div class="no-data">No edit data to compare.</div>';
+
+// ── B3: Lapse table ──────────────────────────────────────────────────────────
+const tbody = document.getElementById('lapse-tbody');
+const maxLapse = lapseData.length ? lapseData[0].lapses : 1;
+lapseData.forEach(d => {
+  const editInfo = editMetrics.edits.find(e => e.note === d.note);
+  const barPct = Math.round(d.lapses / maxLapse * 100);
+  const warn = d.lapses >= 3 && !editInfo;
+  const editBadge = editInfo ? '<span class="edit-badge">✎ 1</span>' : '<span class="edit-badge edit-badge-none">—</span>';
+  let statusPill;
+  if (editInfo) statusPill = '<span class="status-pill status-fixed">✓ edited</span>';
+  else if (warn) statusPill = '<span class="status-pill status-struggling">⚠ rewrite needed</span>';
+  else statusPill = '<span class="status-pill status-pending">— pending</span>';
+  const nameStyle = warn ? ' style="color:var(--red);font-weight:500"' : '';
+  tbody.innerHTML += '<tr><td' + nameStyle + '>' + shortNote(d.note) + '</td>' +
+    '<td><div class="lapse-bar-wrap"><div class="lapse-bar" style="width:' + barPct + '%"></div></div></td>' +
+    '<td style="font-size:12px;color:var(--muted);text-align:right">' + d.lapses + '</td>' +
+    '<td>' + editBadge + '</td><td>' + statusPill + '</td></tr>';
+});
+
+// ── B4: Effectiveness ────────────────────────────────────────────────────────
+const effGrid = document.getElementById('eff-grid');
+editMetrics.effectiveness.forEach(eff => {
+  const tCls = eff.time_delta !== null ? (eff.time_delta <= 0 ? 'positive' : 'negative') : 'neutral';
+  const tStr = eff.time_delta !== null ? (eff.time_delta <= 0 ? '' : '+') + eff.time_delta.toFixed(1) + ' min' : '—';
+  const lCls = eff.lapse_delta <= 0 ? 'positive' : 'negative';
+  effGrid.innerHTML += '<div class="eff-card"><div class="eff-card-title">' + shortNote(eff.note) + '</div>' +
+    '<div class="eff-metric"><span class="eff-metric-label">Δ Review time</span><div class="eff-bar-track"><div class="eff-bar-center"></div><div class="eff-bar-fill ' + (eff.time_delta<=0?'positive':'negative') + '" style="width:' + Math.min(Math.abs(eff.time_delta||0)*8,40) + '%"></div></div><span class="eff-value ' + tCls + '">' + tStr + '</span></div>' +
+    '<div class="eff-metric"><span class="eff-metric-label">Δ Lapse count</span><div class="eff-bar-track"><div class="eff-bar-center"></div><div class="eff-bar-fill ' + lCls + '" style="width:' + Math.min(Math.abs(eff.lapse_delta)*15,40) + '%"></div></div><span class="eff-value ' + lCls + '">' + (eff.lapse_delta<=0?'':'') + eff.lapse_delta + '</span></div>' +
+    '<div class="eff-verdict"><strong>Verdict: ' + eff.verdict + '.</strong></div></div>';
+});
+if (!editMetrics.effectiveness.length) effGrid.innerHTML = '<div class="no-data">No edits to evaluate.</div>';
+
+// ── C1: Pipeline ─────────────────────────────────────────────────────────────
+const pipeEl = document.getElementById('pipeline-container');
+pipelineData.forEach(p => {
+  const statusCls = p.status === 'recovered' || p.status === 'self_recovered' ? 'status-recovered' : 'status-unaddressed';
+  const statusTxt = p.status === 'recovered' ? '✓ Recovered' : p.status === 'self_recovered' ? '✓ Self-recovered' : p.status === 'failed_fix' ? '✗ Failed fix' : '⚠ Unaddressed';
+  const rec = p.recovery;
+  pipeEl.innerHTML += '<div class="pipeline-row">' +
+    '<div class="pipeline-col"><div class="pipeline-note-name">' + shortNote(p.note) + '</div>' +
+    '<div class="pipeline-date">' + p.lapse_date + ' · ' + p.lapse_count + ' lapse(s)</div>' +
+    '<div class="pipeline-metric">R=<span class="val bad">' + p.lapse_r + '</span></div></div>' +
+    '<div class="pipeline-arrow">→</div>' +
+    '<div class="pipeline-col">' + (p.has_edit ? '<span class="pipeline-edit-type">' + (p.edit_type||'edit') + '</span><div class="pipeline-date">' + (p.edit_date||'') + '</div>' : '<span class="pipeline-no-edit">No edit applied</span>') + '</div>' +
+    '<div class="pipeline-arrow">→</div>' +
+    '<div class="pipeline-col">' + (rec ? '<div class="pipeline-date">' + rec.grade + '</div><div class="pipeline-metric">R=<span class="val good">' + rec.r + '</span> · stab=<span class="val">' + rec.stability + 'd</span></div>' : '<div class="pipeline-date">No post-data</div>') +
+    '<span class="pipeline-status ' + statusCls + '">' + statusTxt + '</span></div></div>';
+});
+
+// ── C2: Time saved ───────────────────────────────────────────────────────────
+const tsGrid = document.getElementById('time-saved-grid');
+editMetrics.prePost.forEach(pp => {
+  const delta = pp.time_delta;
+  const cls = delta !== null ? (delta <= 0 ? 'positive' : 'negative') : 'neutral';
+  const str = delta !== null ? (delta <= 0 ? '' : '+') + delta.toFixed(1) + ' min' : '—';
+  tsGrid.innerHTML += '<div class="ts-card"><div class="ts-card-title">' + shortNote(pp.note) + '</div>' +
+    '<div class="ts-big-number ' + cls + '">' + str + '</div>' +
+    '<div class="ts-sub">' + (pp.pre_avg_time||'?') + ' → ' + (pp.post_avg_time||'?') + ' min</div>' +
+    '<div class="ts-detail"><span class="label">Pre-edit (' + pp.pre_reviews + ' rev)</span><span class="value">' + (pp.pre_avg_time||'—') + ' min</span></div>' +
+    '<div class="ts-detail"><span class="label">Post-edit (' + pp.post_reviews + ' rev)</span><span class="value">' + (pp.post_avg_time||'—') + ' min</span></div>' +
+    '<div class="ts-detail"><span class="label">Lapse delta</span><span class="value">' + pp.pre_lapses + ' → ' + pp.post_lapses + '</span></div></div>';
+});
+if (!editMetrics.prePost.length) tsGrid.innerHTML = '<div class="no-data">No edit data.</div>';
+
+// ── C3: Heatmap ──────────────────────────────────────────────────────────────
+function timeToColor(t) { if(t===null)return''; if(t<8)return'#1D9E75'; if(t<12)return'#7bc8a4'; if(t<16)return'#EF9F27'; if(t<20)return'#e06040'; return'#E24B4A'; }
+const hmEl = document.getElementById('heatmap-container');
+if (heatmapData.weeks && heatmapData.weeks.length) {
+  let hhtml = '<div style="display:grid;grid-template-columns:90px repeat(' + heatmapData.weeks.length + ',36px);gap:2px;align-items:center;">';
+  hhtml += '<div></div>';
+  heatmapData.weeks.forEach(w => { hhtml += '<div class="heatmap-label-col">' + w + '</div>'; });
+  heatmapData.notes.forEach(note => {
+    hhtml += '<div class="heatmap-label-row">' + note.short.substring(0,12) + '</div>';
+    note.times.forEach((t,i) => {
+      if (t===null) hhtml += '<div class="heatmap-cell empty">—</div>';
+      else hhtml += '<div class="heatmap-cell" style="background:'+timeToColor(t)+'" title="'+note.short+' '+heatmapData.weeks[i]+': '+t+' min">'+Math.round(t)+'</div>';
+    });
+  });
+  hhtml += '</div>';
+  hmEl.innerHTML = hhtml;
+} else {
+  hmEl.innerHTML = '<div class="no-data">No timed data for heatmap.</div>';
+}
+
+// ── C4: Divergence scatter ───────────────────────────────────────────────────
+if (divergenceData.length) {
+  new Chart(document.getElementById('c-c4'), {
+    type:'scatter',
+    data:{datasets:[
+      {label:'Notes',data:divergenceData.map(p=>({x:p.avg_time,y:p.difficulty})),backgroundColor:divergenceData.map((p,i)=>colorPalette[i%colorPalette.length]),pointRadius:8,pointHoverRadius:11},
+      {label:'Time threshold',data:[{x:12,y:7},{x:12,y:10.5}],type:'line',borderColor:'rgba(239,159,39,0.4)',borderDash:[4,4],borderWidth:1.5,pointRadius:0,fill:false},
+      {label:'Diff threshold',data:[{x:3,y:9.5},{x:25,y:9.5}],type:'line',borderColor:'rgba(226,75,74,0.4)',borderDash:[4,4],borderWidth:1.5,pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>{if(ctx.datasetIndex===0){const p=divergenceData[ctx.dataIndex];return shortNote(p.note)+': '+p.avg_time.toFixed(1)+' min, diff='+p.difficulty;}return'';}}}},scales:{x:{min:3,max:25,title:{display:true,text:'Avg review time (min)',color:textClr,font:{size:11}},ticks:{color:textClr,font:{size:10}},grid:{color:gridClr}},y:{min:7,max:10.5,title:{display:true,text:'FSRS Difficulty',color:textClr,font:{size:11}},ticks:{color:textClr,font:{size:10}},grid:{color:gridClr}}}},
+    plugins:[{afterDraw:function(chart){const ctx=chart.ctx;const meta=chart.getDatasetMeta(0);ctx.save();ctx.font='10px -apple-system,sans-serif';ctx.fillStyle=isDark?'rgba(255,255,255,0.7)':'rgba(0,0,0,0.6)';meta.data.forEach((point,i)=>{ctx.fillText(shortNote(divergenceData[i].note).substring(0,10),point.x+10,point.y+3);});ctx.restore();}}]
+  });
+}
+
+// ── C4: Alerts ───────────────────────────────────────────────────────────────
+const alertEl = document.getElementById('alert-list');
+divergenceData.forEach(p => {
+  if (p.avg_time > 16 && p.difficulty >= 9.5) {
+    alertEl.innerHTML += '<div class="alert-item warn"><span class="alert-icon">⚠️</span><span class="alert-text"><strong>' + shortNote(p.note) + '</strong> — Diff ' + p.difficulty + ' + Time ' + p.avg_time.toFixed(1) + ' min. Hard AND slow. <strong>Action:</strong> Rewrite.</span></div>';
+  } else if (p.avg_time < 8) {
+    alertEl.innerHTML += '<div class="alert-item info"><span class="alert-icon">💡</span><span class="alert-text"><strong>' + shortNote(p.note) + '</strong> — Diff ' + p.difficulty + ' + Time ' + p.avg_time.toFixed(1) + ' min. Very efficient structure.</span></div>';
+  }
+});
+if (!alertEl.innerHTML) alertEl.innerHTML = '<div class="alert-item ok"><span class="alert-icon">✓</span><span class="alert-text">No divergence alerts. All notes within normal range.</span></div>';
+
+// ── D: Detail breakdown ──────────────────────────────────────────────────────
+const detailGrid = document.getElementById('detail-grid');
+let dhtml = '<div class="detail-card"><div class="detail-card-title">⏱ Time breakdown by note</div>';
+sortedPN.forEach(p => {
+  const cls = p.avg_time > 16 ? 'red' : p.avg_time < 8 ? 'green' : '';
+  dhtml += '<div class="detail-row"><span class="label">' + shortNote(p.note) + ' (' + p.count + ' rev)</span><span class="value ' + cls + '">' + p.total_time + ' min · avg ' + p.avg_time + '</span></div>';
+});
+dhtml += '</div>';
+dhtml += '<div class="detail-card"><div class="detail-card-title">📊 Time distribution</div>';
+const times = timeMetrics.events.map(e=>e.time).sort((a,b)=>a-b);
+const median = times.length ? times[Math.floor(times.length/2)] : 0;
+const fastest = times.length ? times[0] : 0;
+const slowest = times.length ? times[times.length-1] : 0;
+dhtml += '<div class="detail-row"><span class="label">Fastest review</span><span class="value green">' + fastest.toFixed(1) + ' min</span></div>';
+dhtml += '<div class="detail-row"><span class="label">Slowest review</span><span class="value red">' + slowest.toFixed(1) + ' min</span></div>';
+dhtml += '<div class="detail-row"><span class="label">Median</span><span class="value">' + median.toFixed(1) + ' min</span></div>';
+dhtml += '<div class="detail-row"><span class="label">Reviews &lt; 10 min</span><span class="value green">' + times.filter(t=>t<10).length + ' / ' + times.length + '</span></div>';
+dhtml += '<div class="detail-row"><span class="label">Reviews &gt; 20 min</span><span class="value red">' + times.filter(t=>t>20).length + ' / ' + times.length + '</span></div>';
+dhtml += '</div>';
+detailGrid.innerHTML = dhtml;
+document.getElementById('footer-note').innerHTML = '<strong>Action triggers:</strong> Avg time &gt; 12 min → simplify note structure. Notes with 3+ lapses and 0 edits → schedule rewrite. Time saved trending negative → strategy working.';
+</script>
+</body>
+</html>
